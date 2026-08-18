@@ -1,0 +1,196 @@
+/* ==========================================================================
+   ASTRA 3D — components.css
+   Object list rows, data-sheet cards, toggles, badges.
+   ========================================================================== */
+
+/* ==========================================================================
+   Object list (left panel)
+   ========================================================================== */
+.object-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 8px 9px;
+  margin-bottom: 3px;
+  color: var(--text-primary);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.object-row:hover {
+  background: rgba(255,255,255,0.03);
+  border-color: var(--hairline-bright);
+}
+.object-row.is-selected {
+  border-color: var(--signal-cyan-dim);
+  background: rgba(79, 214, 232, 0.06);
+}
+
+.object-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.object-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+.object-row-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.object-row-type {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.object-list-group-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin: 12px 0 6px;
+}
+.object-list-group-label:first-child { margin-top: 2px; }
+
+/* ==========================================================================
+   Layer toggles (left panel footer)
+   ========================================================================== */
+.layer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.layer-toggle input[type="checkbox"] {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--hairline-bright);
+  border-radius: 2px;
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.layer-toggle input[type="checkbox"]:checked {
+  background: var(--signal-cyan-dim);
+  border-color: var(--signal-cyan);
+}
+.layer-toggle input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--signal-cyan);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* ==========================================================================
+   Info / data-sheet panel (right panel)
+   ========================================================================== */
+.data-badge-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.data-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 2px;
+  border: 1px solid var(--hairline-bright);
+  color: var(--text-dim);
+}
+.data-badge.badge-real {
+  color: var(--signal-green);
+  border-color: rgba(95, 208, 138, 0.35);
+}
+.data-badge.badge-calc {
+  color: var(--signal-amber);
+  border-color: rgba(232, 162, 61, 0.35);
+}
+
+.data-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.data-cell {
+  background: var(--panel-bg-soft);
+  padding: 9px 10px;
+}
+.data-cell-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.data-cell-value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.data-cell-value .unit {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  margin-left: 2px;
+}
+
+.info-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--signal-cyan);
+  margin: 4px 0 8px;
+}
+
+.info-description {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.info-source {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  border-top: 1px solid var(--hairline);
+  padding-top: 10px;
+  margin-top: 4px;
+  line-height: 1.6;
+}

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASTRA 3D — Interactive Space Science &amp; Mission Analysis Platform</title>
+  <meta name="description" content="ASTRA 3D: an interactive 3D solar system explorer and orbital mechanics platform." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/components.css" />
+
+  <!-- Three.js (loaded from CDN, pinned version) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- ============ LOADING SCREEN ============ -->
+  <div id="loading-screen">
+    <div class="loading-inner">
+      <div class="loading-mark">ASTRA&nbsp;3D</div>
+      <div class="loading-bar-track">
+        <div class="loading-bar-fill" id="loading-bar-fill"></div>
+      </div>
+      <div class="loading-status" id="loading-status">Initializing renderer…</div>
+    </div>
+  </div>
+
+  <!-- ============ 3D CANVAS ROOT ============ -->
+  <main id="scene-root">
+    <canvas id="astra-canvas"></canvas>
+  </main>
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">ASTRA</span><span class="brand-suffix">3D</span>
+    </div>
+    <nav class="topbar-nav" id="topbar-nav">
+      <button class="nav-item is-active" data-view="explorer">Solar System</button>
+      <button class="nav-item" data-view="mechanics" disabled title="Milestone 3">Orbital Mechanics</button>
+      <button class="nav-item" data-view="objects" disabled title="Milestone 4">Space Objects</button>
+      <button class="nav-item" data-view="missions" disabled title="Milestone 5">Mission Planner</button>
+      <button class="nav-item" data-view="earth" disabled title="Milestone 6">Earth &amp; Weather</button>
+    </nav>
+    <div class="topbar-status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="fps-readout">-- FPS</span>
+    </div>
+  </header>
+
+  <!-- ============ TIME / SIMULATION CONTROL DOCK ============ -->
+  <section class="time-dock" id="time-dock">
+    <div class="time-dock-date">
+      <span class="time-label">SIM DATE</span>
+      <span class="time-value" id="sim-date-readout">— — —</span>
+    </div>
+    <div class="time-dock-controls">
+      <button class="time-btn" id="btn-rewind" title="Slow down">«</button>
+      <button class="time-btn" id="btn-play-pause" title="Play / Pause">❚❚</button>
+      <button class="time-btn" id="btn-fast" title="Speed up">»</button>
+      <button class="time-btn" id="btn-now" title="Return to current date">NOW</button>
+    </div>
+    <div class="time-dock-speed">
+      <span class="time-label">RATE</span>
+      <span class="time-value" id="sim-speed-readout">1×</span>
+    </div>
+  </section>
+
+  <!-- ============ LEFT: OBJECT LIST / LAYERS ============ -->
+  <aside class="panel panel-left" id="panel-layers">
+    <div class="panel-header">
+      <span class="panel-title">System Objects</span>
+      <span class="panel-subtitle">Solar System — Milestone 1</span>
+    </div>
+    <div class="panel-body" id="object-list">
+      <!-- populated by ui/panels.js -->
+    </div>
+    <div class="panel-footer">
+      <label class="layer-toggle">
+        <input type="checkbox" id="toggle-orbits" checked />
+        <span>Orbital paths</span>
+      </label>
+      <label class="layer-toggle">
+        <input type="checkbox" id="toggle-labels" checked />
+        <span>Object labels</span>
+      </label>
+      <label class="layer-toggle">
+        <input type="checkbox" id="toggle-scale-note" checked />
+        <span>Scale disclosure</span>
+      </label>
+    </div>
+  </aside>
+
+  <!-- ============ RIGHT: INFORMATION PANEL ============ -->
+  <aside class="panel panel-right" id="panel-info">
+    <div class="panel-header">
+      <span class="panel-title" id="info-title">No object selected</span>
+      <span class="panel-subtitle" id="info-subtitle">Select a body to inspect its data</span>
+    </div>
+    <div class="panel-body" id="info-body">
+      <p class="info-placeholder">
+        Click any planet or the Sun in the 3D view — or choose one from the
+        <strong>System Objects</strong> list — to display its scientific
+        data sheet here.
+      </p>
+    </div>
+  </aside>
+
+  <!-- ============ SCALE / DATA-SOURCE DISCLOSURE ============ -->
+  <footer class="scale-note" id="scale-note">
+    <strong>Scale notice:</strong> planet sizes and orbital distances are
+    visually scaled for legibility — they are <em>not</em> to true relative
+    scale. Physical data shown in panels uses real values from public
+    NASA / JPL references. See <button class="link-btn" id="scale-note-more">details</button>.
+  </footer>
+
+  <!-- ============ CAMERA / VIEW CONTROL DOCK ============ -->
+  <section class="view-dock" id="view-dock">
+    <button class="view-btn" data-target="sun">Sun</button>
+    <button class="view-btn" data-target="mercury">Mercury</button>
+    <button class="view-btn" data-target="venus">Venus</button>
+    <button class="view-btn is-active" data-target="earth">Earth</button>
+    <button class="view-btn" data-target="mars">Mars</button>
+    <button class="view-btn" data-target="jupiter">Jupiter</button>
+    <button class="view-btn" data-target="saturn">Saturn</button>
+    <button class="view-btn" data-target="uranus">Uranus</button>
+    <button class="view-btn" data-target="neptune">Neptune</button>
+    <button class="view-btn view-btn-reset" id="btn-reset-view">Reset View</button>
+  </section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
