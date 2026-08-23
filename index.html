@@ -76,13 +76,17 @@
       <span class="time-label">RATE</span>
       <span class="time-value" id="sim-speed-readout">1×</span>
     </div>
+    <div class="time-dock-status">
+      <span class="time-status-badge" id="sim-status-badge">LIVE</span>
+      <span class="time-step-pips" id="sim-step-pips" aria-hidden="true"></span>
+    </div>
   </section>
 
   <!-- ============ LEFT: OBJECT LIST / LAYERS ============ -->
   <aside class="panel panel-left" id="panel-layers">
     <div class="panel-header">
       <span class="panel-title">System Objects</span>
-      <span class="panel-subtitle">Solar System — Milestone 1</span>
+      <span class="panel-subtitle">Solar System — Milestone 2</span>
     </div>
     <div class="panel-body" id="object-list">
       <!-- populated by ui/panels.js -->
@@ -91,6 +95,10 @@
       <label class="layer-toggle">
         <input type="checkbox" id="toggle-orbits" checked />
         <span>Orbital paths</span>
+      </label>
+      <label class="layer-toggle">
+        <input type="checkbox" id="toggle-moons" checked />
+        <span>Moons</span>
       </label>
       <label class="layer-toggle">
         <input type="checkbox" id="toggle-labels" checked />

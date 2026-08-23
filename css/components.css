@@ -1,6 +1,7 @@
 /* ==========================================================================
    ASTRA 3D — components.css
    Object list rows, data-sheet cards, toggles, badges.
+   (Milestone 2 additions appended at the end — original M1 rules unchanged.)
    ========================================================================== */
 
 /* ==========================================================================
@@ -193,4 +194,31 @@
   padding-top: 10px;
   margin-top: 4px;
   line-height: 1.6;
+}
+
+/* ==========================================================================
+   Milestone 2 — additions (do not override any rule above)
+   ========================================================================== */
+
+/* Indented moon rows nested beneath their parent planet in the object list. */
+.object-row--moon {
+  padding-left: 22px;
+  width: calc(100% - 13px);
+  margin-left: 13px;
+  border-left: 1px solid var(--hairline);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.object-row--moon .object-swatch {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 5px currentColor;
+}
+.object-row--moon .object-row-name {
+  font-size: 12px;
+}
+
+/* "Moon of <Parent>" badge shown on moon data sheets. */
+.data-badge.badge-moon {
+  color: var(--signal-cyan);
+  border-color: rgba(79, 214, 232, 0.35);
 }

@@ -4,6 +4,7 @@
    view dock, left/right panels, scale-note footer.
    All chrome sits above the canvas (z-index) but the canvas remains the
    primary visual focus — panels are translucent, bordered, and compact.
+   (Milestone 2 additions appended at the end — original M1 rules unchanged.)
    ========================================================================== */
 
 /* ==========================================================================
@@ -151,6 +152,10 @@
 .time-btn:hover {
   border-color: var(--signal-cyan);
   color: var(--signal-cyan);
+}
+.time-btn.is-paused {
+  border-color: var(--signal-amber);
+  color: var(--signal-amber);
 }
 #btn-now {
   font-size: 10px;
@@ -324,4 +329,49 @@
     height: 40vh;
   }
   .view-dock { bottom: 118px; }
+}
+
+/* ==========================================================================
+   Milestone 2 — time-dock status readout (LIVE / PAUSED + speed-step pips)
+   ========================================================================== */
+.time-dock-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 1px solid var(--hairline);
+  padding-left: 16px;
+}
+
+.time-status-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 2px;
+  color: var(--signal-green);
+  border: 1px solid rgba(95, 208, 138, 0.35);
+  background: rgba(95, 208, 138, 0.06);
+}
+.time-status-badge.is-paused {
+  color: var(--signal-amber);
+  border-color: rgba(232, 162, 61, 0.4);
+  background: rgba(232, 162, 61, 0.08);
+}
+
+.time-step-pips {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.time-step-pip {
+  width: 5px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--hairline-bright);
+  transition: background 0.15s ease, height 0.15s ease;
+}
+.time-step-pip.is-active {
+  background: var(--signal-cyan);
+  height: 11px;
 }

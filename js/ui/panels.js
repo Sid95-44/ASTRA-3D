@@ -5,9 +5,16 @@
  * data-sheet panel. Pure DOM rendering — no Three.js here — so it stays
  * easy to extend as later milestones add asteroids, satellites, and
  * spacecraft to the same list/panel pattern.
+ *
+ * Milestone 2 additions (additive):
+ *   - The object list now nests each planet's major moons beneath that
+ *     planet's row (indented), and they are selectable like planets.
+ *   - The data-sheet panel renders a moon-specific layout (parent planet,
+ *     orbital period around the planet, distance from the planet, etc.)
+ *     when a moon is selected. Planet rendering is unchanged.
  * ------------------------------------------------------------------------
  */
-import { CELESTIAL_BODIES, PLANET_ORDER } from "../data/dataManager.js";
+import { CELESTIAL_BODIES, PLANET_ORDER, MOONS_BY_PARENT, getBodyData } from "../data/dataManager.js";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
@@ -30,7 +37,7 @@ function toSuperscript(str) {
 }
 
 /**
- * Renders the left object-list panel (Sun + planets for Milestone 1).
+ * Renders the left object-list panel (Sun + planets + major moons for M2).
  * @param {HTMLElement} container
  * @param {(id:string)=>void} onSelect - called with body id when a row is clicked.
  */
@@ -48,13 +55,20 @@ export function renderObjectList(container, onSelect) {
   planetGroup.textContent = "Planets";
   container.appendChild(planetGroup);
   for (const id of PLANET_ORDER) {
-    container.appendChild(buildObjectRow(CELESTIAL_BODIES[id], onSelect));
+    const planetData = CELESTIAL_BODIES[id];
+    container.appendChild(buildObjectRow(planetData, onSelect));
+
+    // Milestone 2 — nest this planet's major moons beneath its row.
+    const moons = MOONS_BY_PARENT[id] || [];
+    for (const moonData of moons) {
+      container.appendChild(buildObjectRow(moonData, onSelect, { isMoon: true }));
+    }
   }
 }
 
-function buildObjectRow(data, onSelect) {
+function buildObjectRow(data, onSelect, { isMoon = false } = {}) {
   const row = document.createElement("button");
-  row.className = "object-row";
+  row.className = isMoon ? "object-row object-row--moon" : "object-row";
   row.id = `row-${data.id}`;
   row.dataset.bodyId = data.id;
 
@@ -82,9 +96,10 @@ export function setSelectedRow(bodyId) {
 
 /**
  * Renders the right-hand scientific data sheet for a selected body.
+ * Handles the Sun, planets, and (Milestone 2) moons through one lookup.
  */
 export function renderInfoPanel(bodyId) {
-  const data = CELESTIAL_BODIES[bodyId];
+  const data = getBodyData(bodyId);
   const titleEl = document.getElementById("info-title");
   const subtitleEl = document.getElementById("info-subtitle");
   const bodyEl = document.getElementById("info-body");
@@ -93,6 +108,15 @@ export function renderInfoPanel(bodyId) {
     titleEl.textContent = "No object selected";
     subtitleEl.textContent = "Select a body to inspect its data";
     bodyEl.innerHTML = `<p class="info-placeholder">Click any planet or the Sun in the 3D view — or choose one from the <strong>System Objects</strong> list — to display its scientific data sheet here.</p>`;
+    return;
+  }
+
+  // Milestone 2 — moon-specific data sheet. Uses moon-relevant fields
+  // (parent planet, orbital period around the planet, distance from the
+  // planet) instead of heliocentric ones. Planet rendering below is
+  // unchanged from Milestone 1.
+  if (data.parentId) {
+    renderMoonInfoPanel(data, titleEl, subtitleEl, bodyEl);
     return;
   }
 
@@ -162,6 +186,84 @@ export function renderInfoPanel(bodyId) {
       calculated in-app from mass and radius (v = √(2GM/r)) — see badge
       above. 3D position uses a simplified circular/elliptical orbit
       model; full Keplerian mechanics arrive in Milestone 3.
+    </div>
+  `;
+}
+
+// Milestone 2 — moon data sheet. Fields are moon-relevant (parent planet,
+// distance from the planet, orbital period around the planet, discovery).
+// Escape velocity is still calculated live from mass and radius, and labeled
+// as such — same convention as planets.
+function renderMoonInfoPanel(data, titleEl, subtitleEl, bodyEl) {
+  const parent = CELESTIAL_BODIES[data.parentId];
+  const parentName = parent ? parent.name : data.parentId;
+
+  titleEl.textContent = data.name;
+  subtitleEl.textContent = `Moon of ${parentName}`;
+
+  const orbitalPeriod = data.orbitalPeriodDays;
+  const retrograde = !!data.retrograde;
+
+  const cells = [
+    { label: "Parent planet", value: parentName, unit: "" },
+    { label: "Mass", value: formatScientific(data.massKg), unit: "kg" },
+    { label: "Radius", value: formatNumber(data.radiusKm, 1), unit: "km" },
+    {
+      label: "Distance from planet",
+      value: formatNumber(data.distanceFromPlanetKm, 0),
+      unit: "km",
+    },
+    {
+      label: "Orbital period",
+      value: orbitalPeriod ? formatOrbitalPeriod(orbitalPeriod) : "—",
+      unit: retrograde ? "(retrograde)" : "",
+    },
+    {
+      label: "Rotation period",
+      value: data.rotationPeriodDays ? formatNumber(Math.abs(data.rotationPeriodDays), 3) : "—",
+      unit: data.rotationPeriodDays ? (Math.abs(data.rotationPeriodDays) < 1 ? "days (tidally locked)" : "Earth days") : "",
+    },
+    { label: "Eccentricity", value: formatNumber(data.eccentricity, 4), unit: "" },
+    { label: "Discovered", value: data.discovered || "—", unit: "" },
+  ];
+
+  const escapeVelocity = estimateEscapeVelocityKmS(data.massKg, data.radiusKm);
+
+  const gridHtml = cells
+    .map(
+      (c) => `
+      <div class="data-cell">
+        <span class="data-cell-label">${c.label}</span>
+        <span class="data-cell-value">${c.value}${c.unit ? `<span class="unit">${c.unit}</span>` : ""}</span>
+      </div>`
+    )
+    .join("");
+
+  bodyEl.innerHTML = `
+    <div class="data-badge-row">
+      <span class="data-badge badge-real">Real NASA/JPL data</span>
+      <span class="data-badge badge-moon">Moon of ${parentName}</span>
+    </div>
+
+    <div class="info-section-label">Overview</div>
+    <p class="info-description">${data.description}</p>
+
+    <div class="info-section-label">Physical &amp; Orbital Data</div>
+    <div class="data-grid">
+      ${gridHtml}
+      <div class="data-cell">
+        <span class="data-cell-label">Escape velocity</span>
+        <span class="data-cell-value">${formatNumber(escapeVelocity, 2)}<span class="unit">km/s</span></span>
+      </div>
+    </div>
+
+    <div class="info-source">
+      Source: NASA Planetary Fact Sheets &amp; NASA Science moon pages
+      (science.nasa.gov), JPL Solar System Dynamics (ssd.jpl.nasa.gov).
+      Orbital period is the sidereal period around the parent planet
+      (not the Sun). Escape velocity is calculated in-app from mass and
+      radius (v = √(2GM/r)). 3D orbit uses a simplified Keplerian model;
+      full mechanics arrive in Milestone 3.
     </div>
   `;
 }

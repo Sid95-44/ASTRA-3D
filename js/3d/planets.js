@@ -1,17 +1,30 @@
 /**
  * planets.js
  * ------------------------------------------------------------------------
- * Builds the Sun and eight planets as Three.js meshes using the
- * visualization scale defined in dataManager.js, and advances their
- * positions each frame from the orbital mechanics helper.
+ * Builds the Sun, the eight planets, and their major moons as Three.js
+ * meshes using the visualization scale defined in dataManager.js, and
+ * advances their positions each frame from the orbital mechanics helper.
  *
  * Selection support: each mesh gets `userData.bodyId` so raycasting in
- * controls.js can map a click straight back to CELESTIAL_BODIES[id].
+ * controls.js can map a click straight back to CELESTIAL_BODIES[id] /
+ * MOON_MAP[id] via getBodyData().
+ *
+ * Milestone 2 additions (additive — no Milestone 1 behavior changed):
+ *   - Planet textures are loaded through textures.js and swapped onto the
+ *     existing flat-color material only on success; flat color is the
+ *     fallback if a texture is missing or fails.
+ *   - Each planet with moons gets a per-planet set of moon meshes. Each
+ *     moon's orbit pivot is parented to the planet's Sun-origin pivot and
+ *     repositioned to the planet each frame, so the moon orbits its correct
+ *     parent planet (not the Sun) and is unaffected by the planet's axial
+ *     spin. Moons are registered in the returned registry so they are
+ *     pickable, focusable, and listed exactly like planets.
  * ------------------------------------------------------------------------
  */
 import * as THREE from "three";
-import { CELESTIAL_BODIES, PLANET_ORDER, SCALE } from "../data/dataManager.js";
+import { CELESTIAL_BODIES, PLANET_ORDER, SCALE, MOONS_BY_PARENT } from "../data/dataManager.js";
 import { computeOrbitPosition } from "../physics/orbitalMechanics.js";
+import { loadBodyTexture } from "./textures.js";
 
 // Compressive radius curve so Mercury and Jupiter are both readable in the
 // same scene. Explicitly a *display* transform — real radiusKm is preserved
@@ -25,10 +38,31 @@ function scaledPlanetRadius(radiusKm) {
   return THREE.MathUtils.clamp(raw, SCALE.planetRadiusMin, SCALE.planetRadiusMax);
 }
 
+// Milestone 2 — separate compressive curve for moons. Moons are far smaller
+// than planets, so they need their own clamp range; otherwise every moon
+// would hit the planet minimum and look identical. Display-only — the real
+// radiusKm from MOON_MAP is shown in the panel.
+function scaledMoonRadius(radiusKm) {
+  const ratio = radiusKm / SCALE.moonReferenceRadiusKm;
+  const compressed = Math.pow(ratio, 0.45);
+  const raw = compressed * 0.5;
+  return THREE.MathUtils.clamp(raw, SCALE.moonRadiusMin, SCALE.moonRadiusMax);
+}
+
+// Milestone 2 — concentric moon orbit radii (scene units) around a planet.
+// Rings (Saturn) need extra clearance so moons sit outside the ring system.
+function moonOrbitRadius(planetDisplayRadius, moonIndex, hasRings) {
+  const innerClearance = hasRings ? planetDisplayRadius * 2.6 : planetDisplayRadius * 1.7;
+  const gap = 0.5;
+  const step = 0.55;
+  return innerClearance + gap + moonIndex * step;
+}
+
 /**
  * Creates all celestial body meshes and adds them to the scene.
  * Returns a registry keyed by body id with mesh + orbit metadata, used by
- * the update loop and by selection/focus logic.
+ * the update loop and by selection/focus logic. Moon ids are also keys in
+ * this registry, so selection/camera/focus treat them like planets.
  */
 export function createCelestialBodies(scene) {
   const registry = {};
@@ -58,6 +92,9 @@ export function createCelestialBodies(scene) {
   sunLabel.position.set(0, SCALE.sunDisplayRadius * 1.6, 0);
   sunMesh.add(sunLabel);
 
+  // Milestone 2 — sun texture (flat color stays if the file is missing).
+  loadBodyTexture("sun", sunMaterial);
+
   registry.sun = {
     id: "sun",
     mesh: sunMesh,
@@ -86,6 +123,9 @@ export function createCelestialBodies(scene) {
     mesh.position.set(orbitRadius, 0, 0);
     pivot.add(mesh);
 
+    // Milestone 2 — planet texture (flat color is the fallback on failure).
+    loadBodyTexture(id, material);
+
     // Small axial tilt / rotation indicator ring (very subtle) — purely
     // decorative selection halo, hidden until selected (see controls.js).
     const haloGeometry = new THREE.RingGeometry(displayRadius * 1.35, displayRadius * 1.5, 48);
@@ -111,6 +151,16 @@ export function createCelestialBodies(scene) {
     label.position.set(0, displayRadius * 1.9 + 0.6, 0);
     mesh.add(label);
 
+    // Milestone 2 — major moons of this planet.
+    const moons = buildMoons(id, data, displayRadius, pivot);
+
+    // Register each moon at the top level too, so selection / raycasting /
+    // camera-focus treat moons exactly like planets (pickableMeshes is built
+    // from Object.values(registry).map(b => b.mesh) in controls.js).
+    for (const moonEntry of moons) {
+      registry[moonEntry.id] = moonEntry;
+    }
+
     registry[id] = {
       id,
       mesh,
@@ -124,10 +174,79 @@ export function createCelestialBodies(scene) {
       rotationPeriodDays: data.rotationPeriodDays,
       // Spread starting phases around the circle so planets don't launch aligned.
       phaseOffset: PLANET_ORDER.indexOf(id) * 0.9,
+      moons, // child moon registry entries (also keyed at top level below)
     };
   }
 
   return registry;
+}
+
+// Milestone 2 — builds the major moons for one planet. Each moon's orbit
+// pivot is parented to the planet's Sun-origin `pivot` group, and the moon
+// mesh is a child of that pivot. updateCelestialBodies() repositions each
+// moon pivot to its planet every frame, so the moon orbits the planet and
+// inherits the planet's heliocentric position automatically. The moon pivot
+// is NOT a child of the planet mesh, so the planet's axial spin does not
+// drag the moon around.
+function buildMoons(planetId, planetData, planetDisplayRadius, planetPivot) {
+  const moonList = MOONS_BY_PARENT[planetId] || [];
+  const hasRings = planetId === "saturn";
+  const moons = [];
+
+  moonList.forEach((moonData, index) => {
+    const displayRadius = scaledMoonRadius(moonData.radiusKm);
+    const orbitRadius = moonOrbitRadius(planetDisplayRadius, index, hasRings);
+
+    const moonPivot = new THREE.Group();
+    planetPivot.add(moonPivot);
+
+    const geometry = new THREE.SphereGeometry(displayRadius, 24, 24);
+    const material = new THREE.MeshStandardMaterial({
+      color: moonData.color,
+      roughness: 0.9,
+      metalness: 0.0,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.bodyId = moonData.id;
+    mesh.position.set(orbitRadius, 0, 0);
+    moonPivot.add(mesh);
+
+    // Selection halo, same convention as planets.
+    const haloGeometry = new THREE.RingGeometry(displayRadius * 1.35, displayRadius * 1.5, 32);
+    const haloMaterial = new THREE.MeshBasicMaterial({
+      color: 0x4fd6e8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0,
+    });
+    const halo = new THREE.Mesh(haloGeometry, haloMaterial);
+    halo.rotation.x = Math.PI / 2.4;
+    mesh.add(halo);
+
+    const label = createLabelSprite(moonData.name);
+    label.position.set(0, displayRadius * 1.9 + 0.3, 0);
+    mesh.add(label);
+
+    const entry = {
+      id: moonData.id,
+      mesh,
+      pivot: moonPivot,
+      halo,
+      label,
+      displayRadius,
+      orbitRadius,
+      eccentricity: moonData.eccentricity,
+      orbitalPeriodDays: moonData.orbitalPeriodDays,
+      rotationPeriodDays: moonData.rotationPeriodDays,
+      retrograde: !!moonData.retrograde,
+      phaseOffset: index * 1.3 + 0.5,
+      parentId: planetId,
+      isMoon: true,
+    };
+    moons.push(entry);
+  });
+
+  return moons;
 }
 
 function createLabelSprite(text) {
@@ -162,6 +281,9 @@ function createLabelSprite(text) {
 
 /**
  * Advances every planet's orbital position and axial rotation.
+ * Milestone 2: also advances each moon's orbit around its parent planet and
+ * the moon's axial spin.
+ *
  * @param {number} elapsedDays - total simulated days since epoch (drives orbit position).
  * @param {number} deltaSimDays - simulated days advanced THIS frame (drives axial spin rate).
  */
@@ -181,6 +303,33 @@ export function updateCelestialBodies(registry, elapsedDays, deltaSimDays) {
       const dir = Math.sign(body.rotationPeriodDays) || 1;
       const rotationFraction = deltaSimDays / Math.abs(body.rotationPeriodDays);
       body.mesh.rotation.y += rotationFraction * Math.PI * 2 * dir;
+    }
+
+    // Milestone 2 — moons. Reposition each moon pivot onto the planet (so
+    // the moon follows the planet's heliocentric motion), then advance the
+    // moon around the planet using the same Keplerian helper as planets.
+    for (const moon of body.moons || []) {
+      moon.pivot.position.copy(body.mesh.position);
+
+      const pos = computeOrbitPosition(
+        moon.orbitRadius,
+        moon.eccentricity,
+        moon.orbitalPeriodDays,
+        elapsedDays,
+        moon.phaseOffset
+      );
+      // Retrograde orbit (e.g. Triton): mirror the position to reverse direction.
+      if (moon.retrograde) {
+        moon.mesh.position.set(-pos.x, 0, -pos.z);
+      } else {
+        moon.mesh.position.set(pos.x, 0, pos.z);
+      }
+
+      if (moon.rotationPeriodDays) {
+        const dir = Math.sign(moon.rotationPeriodDays) || 1;
+        const rotationFraction = deltaSimDays / Math.abs(moon.rotationPeriodDays);
+        moon.mesh.rotation.y += rotationFraction * Math.PI * 2 * dir;
+      }
     }
   }
 

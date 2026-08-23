@@ -4,6 +4,16 @@
  * Wires DOM chrome (time dock, view dock, layer toggles, canvas clicks) to
  * the 3D scene, the TimeSystem, and the info/object-list panels. This is
  * the "glue" layer — it owns no simulation state of its own.
+ *
+ * Milestone 2 changes (additive / minimal):
+ *   - Selection now also handles moons. Selecting a moon still works with the
+ *     existing halo + camera-focus path; the only change is that moons don't
+ *     have a planet orbit-line to highlight, so the orbit highlight is
+ *     cleared instead of pointing at a nonexistent line.
+ *   - A new "Moons" layer toggle hides/shows every moon's pivot group.
+ *   - The time dock now shows a richer readout: weekday in the date, a
+ *     pluralized "days/s" rate, a LIVE/PAUSED status badge, and a speed-step
+ *     pip bar. Play/pause/speed/now behavior is unchanged.
  * ------------------------------------------------------------------------
  */
 import * as THREE from "three";
@@ -38,7 +48,12 @@ export function setupSelection({ canvas, camera, registry, orbitLines, onSelect 
 export function applySelection(bodyId, { registry, orbitLines, focuser, viewDockButtons }) {
   renderInfoPanel(bodyId);
   setSelectedRow(bodyId);
-  setActiveOrbit(orbitLines, bodyId === "sun" ? null : bodyId);
+
+  // Moons have no planet orbit-line of their own; clear the highlight instead
+  // of pointing at a line that doesn't exist.
+  const selected = registry[bodyId];
+  const isMoon = !!(selected && selected.isMoon);
+  setActiveOrbit(orbitLines, !bodyId || bodyId === "sun" || isMoon ? null : bodyId);
 
   for (const [id, body] of Object.entries(registry)) {
     if (body.halo) {
@@ -65,24 +80,48 @@ export function setupTimeDock(timeSystem) {
   const nowBtn = document.getElementById("btn-now");
   const dateReadout = document.getElementById("sim-date-readout");
   const speedReadout = document.getElementById("sim-speed-readout");
+  const statusBadge = document.getElementById("sim-status-badge");
+  const stepPips = document.getElementById("sim-step-pips");
+
+  // Build the speed-step pips once (one pip per available speed step).
+  if (stepPips && !stepPips.childElementCount) {
+    for (let i = 0; i < timeSystem.totalSteps; i++) {
+      const pip = document.createElement("span");
+      pip.className = "time-step-pip";
+      stepPips.appendChild(pip);
+    }
+  }
+
+  function renderTimeDock(state) {
+    dateReadout.textContent = timeSystem.formatDate();
+    speedReadout.textContent = timeSystem.formatSpeed();
+
+    if (statusBadge) {
+      statusBadge.textContent = state.isPaused ? "PAUSED" : (timeSystem.isRealtime ? "LIVE" : "RUNNING");
+      statusBadge.classList.toggle("is-paused", state.isPaused);
+    }
+
+    if (stepPips) {
+      Array.from(stepPips.children).forEach((pip, i) => {
+        pip.classList.toggle("is-active", i <= timeSystem.speedStep);
+      });
+    }
+  }
 
   playPauseBtn.addEventListener("click", () => {
     const paused = timeSystem.togglePlayPause();
     playPauseBtn.textContent = paused ? "▶" : "❚❚";
+    playPauseBtn.classList.toggle("is-paused", paused);
   });
   rewindBtn.addEventListener("click", () => timeSystem.slowDown());
   fastBtn.addEventListener("click", () => timeSystem.speedUp());
   nowBtn.addEventListener("click", () => timeSystem.jumpToNow());
 
-  timeSystem.onChange((state) => {
-    dateReadout.textContent = timeSystem.formatDate();
-    const speedLabel = state.speed >= 1 ? `${state.speed}×` : `${state.speed}×`;
-    speedReadout.textContent = `${speedLabel} day/s`;
-  });
+  timeSystem.onChange(renderTimeDock);
 
   // Initial paint.
-  dateReadout.textContent = timeSystem.formatDate();
-  speedReadout.textContent = `${timeSystem.speed}× day/s`;
+  renderTimeDock(timeSystem.getState());
+  playPauseBtn.textContent = timeSystem.isPaused ? "▶" : "❚❚";
 }
 
 /** Wires the bottom view dock (jump-to-planet buttons) + reset view. */
@@ -100,6 +139,7 @@ export function setupLayerToggles({ orbitGroup, registry }) {
   const orbitsToggle = document.getElementById("toggle-orbits");
   const labelsToggle = document.getElementById("toggle-labels");
   const scaleToggle = document.getElementById("toggle-scale-note");
+  const moonsToggle = document.getElementById("toggle-moons");
   const scaleNote = document.getElementById("scale-note");
 
   orbitsToggle.addEventListener("change", () => {
@@ -115,6 +155,17 @@ export function setupLayerToggles({ orbitGroup, registry }) {
   scaleToggle.addEventListener("change", () => {
     scaleNote.style.display = scaleToggle.checked ? "" : "none";
   });
+
+  // Milestone 2 — "Moons" toggle. Hides each moon's pivot group, which
+  // takes its mesh, label, and halo with it. Raycasting already skips
+  // invisible objects, so hidden moons also stop being pickable.
+  if (moonsToggle) {
+    moonsToggle.addEventListener("change", () => {
+      Object.values(registry).forEach((body) => {
+        if (body.isMoon && body.pivot) body.pivot.visible = moonsToggle.checked;
+      });
+    });
+  }
 }
 
 /** Simple FPS readout, sampled every ~500ms to avoid jitter. */
