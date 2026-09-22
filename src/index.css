@@ -204,3 +204,13 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .landing-hero, .landing-hero .hero-instrument { transform: none; } }
 @media (max-width: 900px) { .feature-grid { grid-template-columns: 1fr; } .scenario-card { grid-column: span 1; } .system-status, .tutorial-panel { flex-direction: column; } }
 @media (max-width: 640px) { .feature-card, .tutorial-panel { padding: 14px; } .select-row { grid-template-columns: 1fr; } .select-row > span { display: none; } .mission-readout, .transfer-metric { align-items: flex-start; flex-direction: column; } .mission-readout span, .transfer-metric span { text-align: left; } .system-status { font-size: 9px; } }
+
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"" />
+    <meta name=""viewport"" content=""width=device-widle=1.0"" />
+      <title>ASTRA 3D — In"ience & Mission Aitle>
+        <meta name=""descri
+
+        
