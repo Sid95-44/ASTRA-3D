@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Navigation } from "@/components/Navigation";
 import { Inspector } from "@/components/Inspector";
-import { OrbitView } from "@/components/OrbitView";
+import { OrbitView } from "@/components/canvas/OrbitView";
 import { bodies, getBody } from "@/data/bodies";
 
 const heroAsset = "/manus-storage/astra-orbital-observatory-hero_d39490e6.jpg";

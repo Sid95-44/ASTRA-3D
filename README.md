@@ -14,6 +14,7 @@ ASTRA 3D is a student-built space-science platform for exploring the Solar Syste
 - Simplified Hohmann transfer visualization with approximate transfer time.
 - Orbit experiment mode for semi-major axis, eccentricity, and inclination.
 - Optional step-by-step field tutorial.
+- ASTRA Guide, a bounded client-side assistant for the selected body, orbital model, simulated time, and current distance measurements.
 - Save, load, and delete mission scenarios using browser local storage.
 - Responsive landing and simulation layouts with reduced-motion support.
 
@@ -69,6 +70,12 @@ Scenarios are stored in `localStorage` only. A saved scenario contains the selec
 
 The landing page uses an Orbital Blueprint direction: near-black vacuum blue, restrained blueprint cyan, and perihelion amber for action. Scroll progress drives the hero instrument and scientific story while the final CTA routes to the real `/simulate` instrument.
 
+## ASTRA Guide
+
+ASTRA Guide is a deterministic educational assistant. It matches a question to a reviewed topic and builds a short response from local body records, the current simulation date and speed, and the existing distance calculation. It covers selected-body telemetry, orbital period and speed, Kepler-inspired motion, eccentricity, inclination, astronomical units, measured distances, simulation time, visual scale, and model limitations. Unsupported questions receive a bounded fallback with suggested prompts.
+
+The guide runs in the browser without a network request, login, or API key. Conversation messages remain in React state for the current simulation session and are cleared when the simulation route is unloaded or the user clears the chat. The guide cannot change simulation state and is not a general-purpose chatbot or mission-planning tool.
+
 ## Scientific Simplifications
 
 ASTRA is realistic enough to teach the main ideas but is not NASA-grade software. It uses simplified heliocentric Keplerian motion, visual scale stretching, approximate moon motion, idealized transfer paths, and an educational spacecraft interpolation. It does not claim full N-body physics, high-precision ephemerides, launch-window accuracy, or professional mission planning.
@@ -90,6 +97,10 @@ Useful validation commands:
 pnpm check
 pnpm build
 ```
+
+## Publish with GitHub Pages
+
+This repository is configured to publish to GitHub Pages whenever a change is pushed to `main`. In the GitHub repository, open **Settings → Pages** and choose **GitHub Actions** as the build and deployment source. After the workflow completes, the site will be available at `https://sid95-44.github.io/ASTRA-3D/`. The workflow builds the static site and includes a fallback page so routes such as `/simulate` continue to work when opened directly or refreshed.
 
 ## Known Limitations and Future Improvements
 
