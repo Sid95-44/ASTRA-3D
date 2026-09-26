@@ -29,15 +29,15 @@ ASTRA 3D is a student-built space-science platform for exploring the Solar Syste
 ## Architecture
 
 ```text
-client/src/
-  components/SolarSystemCanvas.tsx  Three.js scene, camera, moons, missions, transfer orbit, experiment orbit
-  data/bodies.ts                    Sun and planetary records
-  data/moons.ts                     Selected major satellite records
-  lib/orbital.ts                   Kepler propagation, 3D positions, distances, transfer math
-  screens/Landing.tsx              Scroll-driven field brief and launch CTA
-  screens/Simulation.tsx           Observation deck, telemetry, controls, missions, scenarios
-  index.css                        ASTRA visual system and responsive enhancement layer
-  App.tsx                          Routes and application providers
+src/
+  components/canvas/SolarSystemCanvas.tsx  Three.js scene, camera, moons, and mission paths
+  data/bodies.ts                          Sun and planetary records
+  data/moons.ts                           Selected major satellite records
+  lib/orbital.ts                          Kepler propagation, positions, distances, transfer math
+  pages/Landing.tsx                       Scroll-driven field brief and launch CTA
+  pages/Simulation.tsx                    Observation deck, telemetry, and simulation controls
+  index.css                               ASTRA visual system and responsive styles
+  App.tsx                                 Routes and application providers
 ```
 
 ## Orbital Mechanics

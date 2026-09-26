@@ -1,51 +1,810 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CalendarDays, Crosshair, Gauge, Info, Pause, Play, RotateCcw, Ruler, Save, Sparkles, Target, Trash2, X, Zap } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Crosshair,
+  Gauge,
+  Info,
+  Pause,
+  Play,
+  RotateCcw,
+  Ruler,
+  Save,
+  Sparkles,
+  Target,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
 import { Link } from "wouter";
 import { SolarSystemCanvas } from "@/components/canvas/SolarSystemCanvas";
 import { AstraGuide } from "@/components/AstraGuide";
 import type { GuideContext } from "@/lib/astraGuide";
 import { bodies, getBody } from "@/data/bodies";
 import { moons, getMoon } from "@/data/moons";
-import { formatCompactDistance, getApproximateMissionDays, getCelestialName, getDayFromDate, getDistanceBetweenObjectsKm, getSimulatedDate } from "@/lib/orbital";
+import {
+  formatCompactDistance,
+  getApproximateMissionDays,
+  getCelestialName,
+  getDayFromDate,
+  getDistanceBetweenObjectsKm,
+  getSimulatedDate,
+} from "@/lib/orbital";
 
 const SPEEDS = [1, 10, 100, 1000, 10000, 100000];
-const formatter = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-type Mission = { from: string; to: string; launchedAt: number; travelDays: number } | null;
+const formatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+type Mission = {
+  from: string;
+  to: string;
+  launchedAt: number;
+  travelDays: number;
+} | null;
 type Transfer = { from: string; to: string } | null;
-type Experiment = { semiMajorAxisAU: number; eccentricity: number; inclination: number; active: boolean };
-type Scenario = { name: string; selectedId: string; simulatedDay: number; speedIndex: number; experiment: Experiment; mission: Mission; transfer: Transfer };
+type Experiment = {
+  semiMajorAxisAU: number;
+  eccentricity: number;
+  inclination: number;
+  active: boolean;
+};
+type Scenario = {
+  name: string;
+  selectedId: string;
+  simulatedDay: number;
+  speedIndex: number;
+  experiment: Experiment;
+  mission: Mission;
+  transfer: Transfer;
+};
 
-function speedText(value: number) { return `${value.toLocaleString("en-US")}×`; }
-function bodyName(id: string) { return getCelestialName(id, bodies, moons); }
+function speedText(value: number) {
+  return `${value.toLocaleString("en-US")}×`;
+}
+function bodyName(id: string) {
+  return getCelestialName(id, bodies, moons);
+}
 
 export default function Simulation() {
-  const [selectedId, setSelectedId] = useState("earth"); const [isPlaying, setIsPlaying] = useState(true); const [speedIndex, setSpeedIndex] = useState(2); const [simulatedDay, setSimulatedDay] = useState(0); const [showOrbits, setShowOrbits] = useState(true); const [showVelocity, setShowVelocity] = useState(false); const [cameraTargetId, setCameraTargetId] = useState<string | null>(null); const [measurementPair, setMeasurementPair] = useState<string[]>([]); const [mobilePanelOpen, setMobilePanelOpen] = useState(false); const [dateInput, setDateInput] = useState("2025-01-01"); const [missionFrom, setMissionFrom] = useState("earth"); const [missionTo, setMissionTo] = useState("mars"); const [mission, setMission] = useState<Mission>(null); const [transfer, setTransfer] = useState<Transfer>(null); const [experiment, setExperiment] = useState<Experiment>({ semiMajorAxisAU: 1, eccentricity: 0.2, inclination: 8, active: false }); const [tutorialStep, setTutorialStep] = useState(0); const [scenarios, setScenarios] = useState<Scenario[]>([]); const [status, setStatus] = useState("SYSTEM NOMINAL"); const [guideOpen, setGuideOpen] = useState(false);
-  const speed = SPEEDS[speedIndex]; const simulatedDate = getSimulatedDate(simulatedDay); const selectedBody = getBody(selectedId); const selectedMoon = getMoon(selectedId); const measurementDistance = measurementPair.length === 2 ? getDistanceBetweenObjectsKm(measurementPair[0], measurementPair[1], bodies, moons, simulatedDay) : null; const missionDays = mission ? Math.max(1, mission.travelDays) : 0; const missionProgress = mission ? Math.min(100, Math.round(((simulatedDay - mission.launchedAt) / missionDays) * 100)) : 0; const guideContext: GuideContext = useMemo(() => ({ selectedBody, simulatedDay, simulatedDateLabel: formatter.format(simulatedDate), speedMultiplier: speed, measurement: measurementPair.length === 2 && measurementDistance !== null ? { firstName: bodyName(measurementPair[0]), secondName: bodyName(measurementPair[1]), distanceKm: measurementDistance, formattedDistance: formatCompactDistance(measurementDistance) } : null }), [selectedBody, simulatedDay, simulatedDate, speed, measurementPair, measurementDistance]);
-  useEffect(() => { if (!isPlaying) return undefined; const timer = window.setInterval(() => setSimulatedDay((day) => day + speed * 0.22), 220); return () => window.clearInterval(timer); }, [isPlaying, speed]);
-  useEffect(() => { setDateInput(simulatedDate.toISOString().slice(0, 10)); }, [simulatedDate]);
-  useEffect(() => { try { const stored = localStorage.getItem("astra-scenarios"); if (stored) setScenarios(JSON.parse(stored) as Scenario[]); } catch { setStatus("SCENARIO DATA UNAVAILABLE"); } }, []);
-  const selectedReadings = useMemo(() => selectedMoon ? [["Diameter", selectedMoon.diameter], ["Parent", bodyName(selectedMoon.parentId)], ["Orbital period", `${selectedMoon.orbitalPeriodDays} days`], ["Parent distance", `${selectedMoon.distanceFromParentKm.toLocaleString()} km`]] : [["Diameter", selectedBody.diameter], ["Mass", selectedBody.mass], ["Solar distance", selectedBody.solarDistance], ["Orbital period", selectedBody.orbitalPeriod], ["Orbital velocity", selectedBody.orbitalVelocity], ["Eccentricity", selectedBody.eccentricity.toFixed(3)], ["Inclination", `${selectedBody.inclination.toFixed(1)}°`], ["Moons", String(selectedBody.moons)]], [selectedBody, selectedMoon]);
-  const handleSelect = (id: string) => { setSelectedId(id); setCameraTargetId(null); };
-  const launchMission = () => { if (missionFrom === missionTo) { setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS"); return; } const days = getApproximateMissionDays(missionFrom, missionTo, bodies, moons); setMission({ from: missionFrom, to: missionTo, launchedAt: simulatedDay, travelDays: days }); setStatus("MISSION LAUNCHED · EDUCATIONAL TRANSFER"); };
-  const makeTransfer = () => { if (missionFrom === missionTo) { setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS"); return; } if (moons.some((moon) => moon.id === missionFrom || moon.id === missionTo)) { setTransfer(null); setStatus("HOHMANN TRANSFERS USE PLANETARY ORBITS ONLY"); return; } setTransfer({ from: missionFrom, to: missionTo }); setStatus(`HOHMANN TRANSFER READY · ~${getApproximateMissionDays(missionFrom, missionTo, bodies, moons)} DAYS`); };
-  const reset = () => { setIsPlaying(false); setSpeedIndex(0); setSimulatedDay(0); setMission(null); setTransfer(null); setDateInput("2025-01-01"); setStatus("SYSTEM RESET"); };
-  const toggleMeasure = (id: string) => setMeasurementPair((pair) => pair.includes(id) ? pair.filter((item) => item !== id) : pair.length === 2 ? [pair[1], id] : [...pair, id]);
-  const saveScenario = () => { const name = `${bodyName(missionFrom)} → ${bodyName(missionTo)}`; const next = [...scenarios.filter((item) => item.name !== name), { name, selectedId, simulatedDay, speedIndex, experiment, mission, transfer }]; setScenarios(next); localStorage.setItem("astra-scenarios", JSON.stringify(next)); setStatus("SCENARIO SAVED LOCALLY"); };
-  const loadScenario = (scenario: Scenario) => { setSelectedId(scenario.selectedId); setSimulatedDay(scenario.simulatedDay); setSpeedIndex(scenario.speedIndex); setExperiment(scenario.experiment); setMission(scenario.mission); setTransfer(scenario.transfer); setStatus(`SCENARIO LOADED · ${scenario.name}`); };
-  const deleteScenario = (name: string) => { const next = scenarios.filter((item) => item.name !== name); setScenarios(next); localStorage.setItem("astra-scenarios", JSON.stringify(next)); setStatus("SCENARIO DELETED"); };
-  const tutorialLabels = ["Select Earth from the object register.", "Enable orbital paths to reveal the geometry.", "Increase the simulation speed.", "Select Mars and compare the telemetry.", "Create a Hohmann transfer.", "Launch a simple spacecraft mission.", "Change eccentricity in the experiment."];
+  const [selectedId, setSelectedId] = useState("earth");
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [speedIndex, setSpeedIndex] = useState(2);
+  const [simulatedDay, setSimulatedDay] = useState(0);
+  const [showOrbits, setShowOrbits] = useState(true);
+  const [showVelocity, setShowVelocity] = useState(false);
+  const [cameraTargetId, setCameraTargetId] = useState<string | null>(null);
+  const [measurementPair, setMeasurementPair] = useState<string[]>([]);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [dateInput, setDateInput] = useState("2025-01-01");
+  const [missionFrom, setMissionFrom] = useState("earth");
+  const [missionTo, setMissionTo] = useState("mars");
+  const [mission, setMission] = useState<Mission>(null);
+  const [transfer, setTransfer] = useState<Transfer>(null);
+  const [experiment, setExperiment] = useState<Experiment>({
+    semiMajorAxisAU: 1,
+    eccentricity: 0.2,
+    inclination: 8,
+    active: false,
+  });
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [status, setStatus] = useState("SYSTEM NOMINAL");
+  const [guideOpen, setGuideOpen] = useState(false);
+  const speed = SPEEDS[speedIndex];
+  const simulatedDate = getSimulatedDate(simulatedDay);
+  const selectedBody = getBody(selectedId);
+  const selectedMoon = getMoon(selectedId);
+  const measurementDistance =
+    measurementPair.length === 2
+      ? getDistanceBetweenObjectsKm(
+          measurementPair[0],
+          measurementPair[1],
+          bodies,
+          moons,
+          simulatedDay
+        )
+      : null;
+  const missionDays = mission ? Math.max(1, mission.travelDays) : 0;
+  const missionProgress = mission
+    ? Math.min(
+        100,
+        Math.round(((simulatedDay - mission.launchedAt) / missionDays) * 100)
+      )
+    : 0;
+  const guideContext: GuideContext = useMemo(
+    () => ({
+      selectedBody,
+      simulatedDay,
+      simulatedDateLabel: formatter.format(simulatedDate),
+      speedMultiplier: speed,
+      measurement:
+        measurementPair.length === 2 && measurementDistance !== null
+          ? {
+              firstName: bodyName(measurementPair[0]),
+              secondName: bodyName(measurementPair[1]),
+              distanceKm: measurementDistance,
+              formattedDistance: formatCompactDistance(measurementDistance),
+            }
+          : null,
+    }),
+    [
+      selectedBody,
+      simulatedDay,
+      simulatedDate,
+      speed,
+      measurementPair,
+      measurementDistance,
+    ]
+  );
+  useEffect(() => {
+    if (!isPlaying) return undefined;
+    const timer = window.setInterval(
+      () => setSimulatedDay(day => day + speed * 0.22),
+      220
+    );
+    return () => window.clearInterval(timer);
+  }, [isPlaying, speed]);
+  useEffect(() => {
+    setDateInput(simulatedDate.toISOString().slice(0, 10));
+  }, [simulatedDate]);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("astra-scenarios");
+      if (stored) setScenarios(JSON.parse(stored) as Scenario[]);
+    } catch {
+      setStatus("SCENARIO DATA UNAVAILABLE");
+    }
+  }, []);
+  const selectedReadings = useMemo(
+    () =>
+      selectedMoon
+        ? [
+            ["Diameter", selectedMoon.diameter],
+            ["Parent", bodyName(selectedMoon.parentId)],
+            ["Orbital period", `${selectedMoon.orbitalPeriodDays} days`],
+            [
+              "Parent distance",
+              `${selectedMoon.distanceFromParentKm.toLocaleString()} km`,
+            ],
+          ]
+        : [
+            ["Diameter", selectedBody.diameter],
+            ["Mass", selectedBody.mass],
+            ["Solar distance", selectedBody.solarDistance],
+            ["Orbital period", selectedBody.orbitalPeriod],
+            ["Orbital velocity", selectedBody.orbitalVelocity],
+            ["Eccentricity", selectedBody.eccentricity.toFixed(3)],
+            ["Inclination", `${selectedBody.inclination.toFixed(1)}°`],
+            ["Moons", String(selectedBody.moons)],
+          ],
+    [selectedBody, selectedMoon]
+  );
+  const handleSelect = (id: string) => {
+    setSelectedId(id);
+    setCameraTargetId(null);
+  };
+  const launchMission = () => {
+    if (missionFrom === missionTo) {
+      setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS");
+      return;
+    }
+    const days = getApproximateMissionDays(
+      missionFrom,
+      missionTo,
+      bodies,
+      moons
+    );
+    setMission({
+      from: missionFrom,
+      to: missionTo,
+      launchedAt: simulatedDay,
+      travelDays: days,
+    });
+    setStatus("MISSION LAUNCHED · EDUCATIONAL TRANSFER");
+  };
+  const makeTransfer = () => {
+    if (missionFrom === missionTo) {
+      setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS");
+      return;
+    }
+    if (moons.some(moon => moon.id === missionFrom || moon.id === missionTo)) {
+      setTransfer(null);
+      setStatus("HOHMANN TRANSFERS USE PLANETARY ORBITS ONLY");
+      return;
+    }
+    setTransfer({ from: missionFrom, to: missionTo });
+    setStatus(
+      `HOHMANN TRANSFER READY · ~${getApproximateMissionDays(missionFrom, missionTo, bodies, moons)} DAYS`
+    );
+  };
+  const reset = () => {
+    setIsPlaying(false);
+    setSpeedIndex(0);
+    setSimulatedDay(0);
+    setMission(null);
+    setTransfer(null);
+    setDateInput("2025-01-01");
+    setStatus("SYSTEM RESET");
+  };
+  const toggleMeasure = (id: string) =>
+    setMeasurementPair(pair =>
+      pair.includes(id)
+        ? pair.filter(item => item !== id)
+        : pair.length === 2
+          ? [pair[1], id]
+          : [...pair, id]
+    );
+  const saveScenario = () => {
+    const name = `${bodyName(missionFrom)} → ${bodyName(missionTo)}`;
+    const next = [
+      ...scenarios.filter(item => item.name !== name),
+      {
+        name,
+        selectedId,
+        simulatedDay,
+        speedIndex,
+        experiment,
+        mission,
+        transfer,
+      },
+    ];
+    setScenarios(next);
+    localStorage.setItem("astra-scenarios", JSON.stringify(next));
+    setStatus("SCENARIO SAVED LOCALLY");
+  };
+  const loadScenario = (scenario: Scenario) => {
+    setSelectedId(scenario.selectedId);
+    setSimulatedDay(scenario.simulatedDay);
+    setSpeedIndex(scenario.speedIndex);
+    setExperiment(scenario.experiment);
+    setMission(scenario.mission);
+    setTransfer(scenario.transfer);
+    setStatus(`SCENARIO LOADED · ${scenario.name}`);
+  };
+  const deleteScenario = (name: string) => {
+    const next = scenarios.filter(item => item.name !== name);
+    setScenarios(next);
+    localStorage.setItem("astra-scenarios", JSON.stringify(next));
+    setStatus("SCENARIO DELETED");
+  };
+  const tutorialLabels = [
+    "Select Earth from the object register.",
+    "Enable orbital paths to reveal the geometry.",
+    "Increase the simulation speed.",
+    "Select Mars and compare the telemetry.",
+    "Create a Hohmann transfer.",
+    "Launch a simple spacecraft mission.",
+    "Change eccentricity in the experiment.",
+  ];
 
-  return <main className="simulation-page"><header className="simulation-topbar"><Link href="/" className="simulation-brand"><img src="/manus-storage/astra-split-orbit-mark_fd8718c3.png" alt="" /><span>ASTRA <b>3D</b></span></Link><div className="simulation-status"><span><i className="status-dot" /> Observation deck active</span><b>FRAME / HELIOCENTRIC</b></div><Link href="/" className="back-link"><ArrowLeft size={15} /> Exit to field brief</Link></header>
-    <div className="simulation-layout"><aside className="simulation-rail"><div className="rail-intro"><p className="eyebrow">Live instrument</p><h1>Solar<br /><em>system</em></h1><p>Drag to orbit · scroll to zoom · click a body</p></div><div className="rail-section"><p className="rail-label">Object register</p><div className="body-register">{bodies.map((body) => <button key={body.id} className={selectedId === body.id ? "is-selected" : ""} onClick={() => handleSelect(body.id)}><i style={{ background: body.accent }} /> <span>{body.name}</span><small>{body.id === "sun" ? "★" : `${body.semiMajorAxisAU.toFixed(2)} AU`}</small></button>)}{moons.map((moon) => <button key={moon.id} className={`moon-register ${selectedId === moon.id ? "is-selected" : ""}`} onClick={() => handleSelect(moon.id)}><i style={{ background: moon.accent }} /> <span>↳ {moon.name}</span><small>{bodyName(moon.parentId)}</small></button>)}</div></div><div className="rail-note"><Info size={15} /><p><strong>Scale note</strong>Distances and sizes are stretched for a readable screen model. Mission paths are idealized for learning, not launch planning.</p></div></aside>
-      <section className="simulation-main"><div className="simulation-heading"><div><p className="eyebrow">01 · Primary instrument</p><h2>Orbital observation field</h2></div><div className="heading-actions"><span className="live-readout"><i className="status-dot" /> Live model</span><button type="button" className="ask-astra-toggle" onClick={() => setGuideOpen((open) => !open)} aria-expanded={guideOpen} aria-controls="astra-guide-panel">Ask ASTRA</button><button className="mobile-panel-toggle" onClick={() => setMobilePanelOpen((open) => !open)} aria-expanded={mobilePanelOpen}>Details</button></div></div>
-        <AstraGuide context={guideContext} open={guideOpen} onOpenChange={setGuideOpen} />
-        <div className="simulation-stage-wrap"><SolarSystemCanvas bodies={bodies} moons={moons} simulatedDay={simulatedDay} selectedId={selectedId} showOrbits={showOrbits} showVelocity={showVelocity} cameraTargetId={cameraTargetId} mission={mission} transfer={transfer} experiment={experiment} onSelect={handleSelect} /><div className="stage-readout stage-readout-tl"><span>SIM DATE</span><b>{formatter.format(simulatedDate)}</b></div><div className="stage-readout stage-readout-tr"><span>TIME SPEED</span><b>{speedText(speed)}</b></div><div className="stage-readout stage-readout-bl"><span>ASTRA TELEMETRY · {selectedMoon ? selectedMoon.name.toUpperCase() : selectedBody.name.toUpperCase()}</span><b>{selectedMoon ? `${selectedMoon.orbitalPeriodDays} DAYS / ORBIT` : `${selectedBody.orbitalVelocity} · e ${selectedBody.eccentricity.toFixed(3)}`}</b></div><div className="stage-actions"><button className={showOrbits ? "is-on" : ""} onClick={() => setShowOrbits((value) => !value)}>◌ Orbits</button><button className={showVelocity ? "is-on" : ""} onClick={() => setShowVelocity((value) => !value)}><Zap size={14} /> Velocity</button><button onClick={() => setCameraTargetId(selectedId)}><Target size={14} /> Focus</button></div></div>
-        <div className="time-console"><div className="time-console-main"><button className="console-button primary" onClick={() => setIsPlaying((playing) => !playing)} aria-label={isPlaying ? "Pause simulation" : "Play simulation"}>{isPlaying ? <Pause size={17} /> : <Play size={17} />}</button><button className="console-button" onClick={reset} aria-label="Reset simulation"><RotateCcw size={16} /></button><div className="console-date"><span><CalendarDays size={14} /> Simulated date</span><strong>{formatter.format(simulatedDate)}</strong></div></div><div className="speed-control"><span className="console-label">TIME SPEED</span><div>{SPEEDS.map((option, index) => <button key={option} className={speedIndex === index ? "is-selected" : ""} onClick={() => setSpeedIndex(index)}>{speedText(option)}</button>)}</div></div><label className="date-jump"><span>Jump to date</span><input type="date" value={dateInput} min="1900-01-01" max="2200-12-31" onChange={(event) => { setDateInput(event.target.value); setSimulatedDay(getDayFromDate(event.target.value)); }} /></label></div>
-        <div className="sim-bottom-grid"><section className="measurement-card"><header><div><p className="eyebrow">02 · Distance measurement</p><h3><Ruler size={17} /> Measure between worlds</h3></div><button onClick={() => setMeasurementPair([])} aria-label="Clear measurement"><X size={15} /></button></header><p className="measurement-route">{measurementPair.length === 2 ? `${bodyName(measurementPair[0])} → ${bodyName(measurementPair[1])}` : "Select two objects"}</p>{measurementDistance !== null ? <strong className="measurement-value">{formatCompactDistance(measurementDistance)}</strong> : <span className="measurement-empty">Uses the current inclined 3D positions from the orbital model.</span>}<div className="measurement-picker">{bodies.slice(0, 6).map((body) => <button key={body.id} className={measurementPair.includes(body.id) ? "is-selected" : ""} onClick={() => toggleMeasure(body.id)}>{body.name}</button>)}{moons.slice(0, 2).map((moon) => <button key={moon.id} className={measurementPair.includes(moon.id) ? "is-selected" : ""} onClick={() => toggleMeasure(moon.id)}>{moon.name}</button>)}</div></section><section className={`object-card ${mobilePanelOpen ? "is-open" : ""}`}><header><div><p className="eyebrow">03 · Live telemetry</p><span className="record-id">ASTRA TELEMETRY / {selectedId.toUpperCase()}</span></div><button className="focus-object" onClick={() => setCameraTargetId(selectedId)}><Crosshair size={15} /> Focus</button></header><div className="object-title"><div className="object-emblem" style={{ "--emblem-color": selectedMoon?.accent ?? selectedBody.accent } as React.CSSProperties}>{selectedMoon?.symbol ?? selectedBody.symbol}</div><div><p className="eyebrow">Selected object</p><h3>{selectedMoon?.name ?? selectedBody.name}</h3><span>{selectedMoon ? "Major satellite" : selectedBody.category}</span></div></div><p className="object-description">{selectedMoon?.description ?? selectedBody.description}</p><dl className="object-readings">{selectedReadings.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}<div><dt>Simulation date</dt><dd>{dateInput}</dd></div><div><dt>Time speed</dt><dd>{speedText(speed)}</dd></div></dl><div className="fact-note"><Sparkles size={15} /><p><strong>Field note</strong>{selectedMoon?.fact ?? selectedBody.fact}</p></div></section></div>
-        <section className="feature-grid"><section className="feature-card mission-card"><header><div><p className="eyebrow">04 · Mission mode</p><h3><Target size={16} /> Spacecraft mission</h3></div><span className="inline-status">{mission ? (missionProgress >= 100 ? "ARRIVED" : "IN TRANSIT") : "READY"}</span></header><div className="select-row"><label>Departure<select value={missionFrom} onChange={(event) => setMissionFrom(event.target.value)}>{bodies.filter((body) => body.id !== "sun").map((body) => <option key={body.id} value={body.id}>{body.name}</option>)}{moons.map((moon) => <option key={moon.id} value={moon.id}>{moon.name}</option>)}</select></label><span>→</span><label>Destination<select value={missionTo} onChange={(event) => setMissionTo(event.target.value)}>{bodies.filter((body) => body.id !== "sun").map((body) => <option key={body.id} value={body.id}>{body.name}</option>)}{moons.map((moon) => <option key={moon.id} value={moon.id}>{moon.name}</option>)}</select></label></div>{mission ? <p className="mission-readout"><strong>{bodyName(mission.from)} → {bodyName(mission.to)}</strong><span>{missionProgress}% · {missionProgress >= 100 ? "Spacecraft reached destination" : `${Math.max(0, Math.round(mission.travelDays - (simulatedDay - mission.launchedAt)))} days remaining`}</span></p> : <p className="feature-note">A simple visual path between current planetary positions. It demonstrates mission timing without pretending to solve a launch window.</p>}<div className="button-row"><button className="primary-small" onClick={launchMission}>{mission ? "RELAUNCH" : "LAUNCH SPACECRAFT"}</button><button onClick={() => setMission(null)}>RESET</button></div></section>
-          <section className="feature-card transfer-card"><header><div><p className="eyebrow">05 · Transfer geometry</p><h3><Gauge size={16} /> Hohmann transfer</h3></div><span className="inline-status">{transfer ? "VISIBLE" : "IDEALIZED"}</span></header><p className="feature-note">An efficient idealized transfer between approximately coplanar circular orbits. ASTRA shows the geometry, not a launch-window prediction.</p><div className="transfer-metric"><strong>~{getApproximateMissionDays(missionFrom, missionTo, bodies, moons)} DAYS</strong><span>{bodyName(missionFrom)} → {bodyName(missionTo)}</span></div><div className="button-row"><button className="primary-small" onClick={makeTransfer}>SHOW TRANSFER</button><button onClick={() => setTransfer(null)}>CLEAR</button></div></section>
-          <section className="feature-card experiment-card"><header><div><p className="eyebrow">06 · Orbit experiment</p><h3>Change the orbit</h3></div><button onClick={() => setExperiment({ semiMajorAxisAU: 1, eccentricity: 0.2, inclination: 8, active: false })}><RotateCcw size={14} /> Reset</button></header>{([['semiMajorAxisAU','Semi-major axis',0.4,2.4,0.1,' AU'],['eccentricity','Eccentricity',0,0.8,0.01,''],['inclination','Inclination',0,30,1,'°']] as const).map(([key, label, min, max, step, unit]) => <label className="slider-row" key={key}><span>{label}<b>{experiment[key].toFixed(key === 'eccentricity' ? 2 : 1)}{unit}</b></span><input type="range" min={min} max={max} step={step} value={experiment[key]} onChange={(event) => setExperiment({ ...experiment, [key]: Number(event.target.value), active: true })} /></label>)}<p className="feature-note">{experiment.eccentricity > 0.45 ? "Higher eccentricity makes the orbit more elongated." : "Small eccentricity values keep the orbit closer to a circle."}</p></section>
-          <section className="feature-card scenario-card"><header><div><p className="eyebrow">07 · Mission scenarios</p><h3><Save size={16} /> Save locally</h3></div><button onClick={saveScenario}>SAVE SCENARIO</button></header>{scenarios.length ? scenarios.map((scenario) => <div className="scenario-row" key={scenario.name}><span>{scenario.name}</span><button onClick={() => loadScenario(scenario)}>LOAD</button><button onClick={() => deleteScenario(scenario.name)} aria-label={`Delete ${scenario.name}`}><Trash2 size={14} /></button></div>) : <p className="feature-note">Save your current mission, date, speed, and experiment in this browser only.</p>}</section></section>
-        <section className="tutorial-panel"><div><p className="eyebrow">Optional field tutorial · {tutorialStep + 1}/7</p><h3>{tutorialLabels[tutorialStep]}</h3><p>ASTRA is a small model you can explain: observe a position, change one variable, and compare the result.</p></div><div className="button-row"><button onClick={() => setTutorialStep((step) => Math.min(6, step + 1))}>{tutorialStep === 6 ? "FINISH TUTORIAL" : "NEXT STEP"}</button><button onClick={() => setTutorialStep(6)}>SKIP TUTORIAL</button><button onClick={() => setTutorialStep(0)}>RESTART</button></div></section><div className="system-status" role="status"><span><i className="status-dot" /> {status}</span><span>Educational approximation · no full N-body physics</span></div>
-      </section></div></main>;
+  return (
+    <main className="simulation-page">
+      <header className="simulation-topbar">
+        <Link href="/" className="simulation-brand">
+          <img
+            src="/manus-storage/astra-split-orbit-mark_fd8718c3.png"
+            alt=""
+          />
+          <span>
+            ASTRA <b>3D</b>
+          </span>
+        </Link>
+        <div className="simulation-status">
+          <span>
+            <i className="status-dot" /> Observation deck active
+          </span>
+          <b>FRAME / HELIOCENTRIC</b>
+        </div>
+        <Link href="/" className="back-link">
+          <ArrowLeft size={15} /> Exit to field brief
+        </Link>
+      </header>
+      <div className="simulation-layout">
+        <aside className="simulation-rail">
+          <div className="rail-intro">
+            <p className="eyebrow">Live instrument</p>
+            <h1>
+              Solar
+              <br />
+              <em>system</em>
+            </h1>
+            <p>Drag to orbit · scroll to zoom · click a body</p>
+          </div>
+          <div className="rail-section">
+            <p className="rail-label">Object register</p>
+            <div className="body-register">
+              {bodies.map(body => (
+                <button
+                  key={body.id}
+                  className={selectedId === body.id ? "is-selected" : ""}
+                  onClick={() => handleSelect(body.id)}
+                >
+                  <i style={{ background: body.accent }} />{" "}
+                  <span>{body.name}</span>
+                  <small>
+                    {body.id === "sun"
+                      ? "★"
+                      : `${body.semiMajorAxisAU.toFixed(2)} AU`}
+                  </small>
+                </button>
+              ))}
+              {moons.map(moon => (
+                <button
+                  key={moon.id}
+                  className={`moon-register ${selectedId === moon.id ? "is-selected" : ""}`}
+                  onClick={() => handleSelect(moon.id)}
+                >
+                  <i style={{ background: moon.accent }} />{" "}
+                  <span>↳ {moon.name}</span>
+                  <small>{bodyName(moon.parentId)}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="rail-note">
+            <Info size={15} />
+            <p>
+              <strong>Scale note</strong>Distances and sizes are stretched for a
+              readable screen model. Mission paths are idealized for learning,
+              not launch planning.
+            </p>
+          </div>
+        </aside>
+        <section className="simulation-main">
+          <div className="simulation-heading">
+            <div>
+              <p className="eyebrow">01 · Primary instrument</p>
+              <h2>Orbital observation field</h2>
+            </div>
+            <div className="heading-actions">
+              <span className="live-readout">
+                <i className="status-dot" /> Live model
+              </span>
+              <button
+                type="button"
+                className="ask-astra-toggle"
+                onClick={() => setGuideOpen(open => !open)}
+                aria-expanded={guideOpen}
+                aria-controls="astra-guide-panel"
+              >
+                Ask ASTRA
+              </button>
+              <button
+                className="mobile-panel-toggle"
+                onClick={() => setMobilePanelOpen(open => !open)}
+                aria-expanded={mobilePanelOpen}
+              >
+                Details
+              </button>
+            </div>
+          </div>
+          <AstraGuide
+            context={guideContext}
+            open={guideOpen}
+            onOpenChange={setGuideOpen}
+          />
+          <section className="mission-control" aria-labelledby="mission-control-title">
+            <div className="mission-control-topline">
+              <div>
+                <p className="eyebrow">Mission control · Flight desk</p>
+                <h3 id="mission-control-title"><Target size={17} /> Plan a flight</h3>
+              </div>
+              <span className={`mission-control-state ${mission ? "is-active" : ""}`}>
+                <i /> {mission ? missionProgress >= 100 ? "ARRIVED" : "IN FLIGHT" : "STANDBY"}
+              </span>
+            </div>
+            <div className="mission-control-controls">
+              <label>Departure
+                <select value={missionFrom} onChange={event => setMissionFrom(event.target.value)}>
+                  {bodies.filter(body => body.id !== "sun").map(body => <option key={body.id} value={body.id}>{body.name}</option>)}
+                  {moons.map(moon => <option key={moon.id} value={moon.id}>{moon.name}</option>)}
+                </select>
+              </label>
+              <span className="mission-route-arrow">→</span>
+              <label>Destination
+                <select value={missionTo} onChange={event => setMissionTo(event.target.value)}>
+                  {bodies.filter(body => body.id !== "sun").map(body => <option key={body.id} value={body.id}>{body.name}</option>)}
+                  {moons.map(moon => <option key={moon.id} value={moon.id}>{moon.name}</option>)}
+                </select>
+              </label>
+              <div className="mission-control-estimate">
+                <span>EST. FLIGHT</span>
+                <strong>~{getApproximateMissionDays(missionFrom, missionTo, bodies, moons).toLocaleString()} <small>days</small></strong>
+              </div>
+              <button className="mission-launch-button" onClick={mission ? () => setMission(null) : launchMission}>
+                {mission ? <><X size={15} /> End flight</> : <><Play size={15} fill="currentColor" /> Launch</>}
+              </button>
+            </div>
+            <div className="mission-control-progress">
+              <div className="mission-progress-track"><i style={{ width: `${mission ? missionProgress : 0}%` }} /></div>
+              <div className="mission-progress-caption">
+                {mission ? <><span>{bodyName(mission.from)} <b>→</b> {bodyName(mission.to)}</span><span>{missionProgress}% · {missionProgress >= 100 ? "Destination reached" : `${Math.max(0, Math.round(mission.travelDays - (simulatedDay - mission.launchedAt))).toLocaleString()} days remaining`}</span></> : <><span>Choose a route to prepare your spacecraft</span><span>Educational trajectory</span></>}
+              </div>
+            </div>
+          </section>
+          <div className="simulation-stage-wrap">
+            <SolarSystemCanvas
+              bodies={bodies}
+              moons={moons}
+              simulatedDay={simulatedDay}
+              selectedId={selectedId}
+              showOrbits={showOrbits}
+              showVelocity={showVelocity}
+              cameraTargetId={cameraTargetId}
+              mission={mission}
+              transfer={transfer}
+              experiment={experiment}
+              onSelect={handleSelect}
+            />
+            <div className="stage-readout stage-readout-tl">
+              <span>SIM DATE</span>
+              <b>{formatter.format(simulatedDate)}</b>
+            </div>
+            <div className="stage-readout stage-readout-tr">
+              <span>TIME SPEED</span>
+              <b>{speedText(speed)}</b>
+            </div>
+            <div className="stage-readout stage-readout-bl">
+              <span>
+                ASTRA TELEMETRY ·{" "}
+                {selectedMoon
+                  ? selectedMoon.name.toUpperCase()
+                  : selectedBody.name.toUpperCase()}
+              </span>
+              <b>
+                {selectedMoon
+                  ? `${selectedMoon.orbitalPeriodDays} DAYS / ORBIT`
+                  : `${selectedBody.orbitalVelocity} · e ${selectedBody.eccentricity.toFixed(3)}`}
+              </b>
+            </div>
+            <div className="stage-actions">
+              <button
+                className={showOrbits ? "is-on" : ""}
+                onClick={() => setShowOrbits(value => !value)}
+              >
+                ◌ Orbits
+              </button>
+              <button
+                className={showVelocity ? "is-on" : ""}
+                onClick={() => setShowVelocity(value => !value)}
+              >
+                <Zap size={14} /> Velocity
+              </button>
+              <button onClick={() => setCameraTargetId(selectedId)}>
+                <Target size={14} /> Focus
+              </button>
+            </div>
+          </div>
+          <div className="time-console">
+            <div className="time-console-main">
+              <button
+                className="console-button primary"
+                onClick={() => setIsPlaying(playing => !playing)}
+                aria-label={isPlaying ? "Pause simulation" : "Play simulation"}
+              >
+                {isPlaying ? <Pause size={17} /> : <Play size={17} />}
+              </button>
+              <button
+                className="console-button"
+                onClick={reset}
+                aria-label="Reset simulation"
+              >
+                <RotateCcw size={16} />
+              </button>
+              <div className="console-date">
+                <span>
+                  <CalendarDays size={14} /> Simulated date
+                </span>
+                <strong>{formatter.format(simulatedDate)}</strong>
+              </div>
+            </div>
+            <div className="speed-control">
+              <span className="console-label">TIME SPEED</span>
+              <div>
+                {SPEEDS.map((option, index) => (
+                  <button
+                    key={option}
+                    className={speedIndex === index ? "is-selected" : ""}
+                    onClick={() => setSpeedIndex(index)}
+                  >
+                    {speedText(option)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="date-jump">
+              <span>Jump to date</span>
+              <input
+                type="date"
+                value={dateInput}
+                min="1900-01-01"
+                max="2200-12-31"
+                onChange={event => {
+                  setDateInput(event.target.value);
+                  setSimulatedDay(getDayFromDate(event.target.value));
+                }}
+              />
+            </label>
+          </div>
+          <div className="sim-bottom-grid">
+            <section className="measurement-card">
+              <header>
+                <div>
+                  <p className="eyebrow">02 · Distance measurement</p>
+                  <h3>
+                    <Ruler size={17} /> Measure between worlds
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setMeasurementPair([])}
+                  aria-label="Clear measurement"
+                >
+                  <X size={15} />
+                </button>
+              </header>
+              <p className="measurement-route">
+                {measurementPair.length === 2
+                  ? `${bodyName(measurementPair[0])} → ${bodyName(measurementPair[1])}`
+                  : "Select two objects"}
+              </p>
+              {measurementDistance !== null ? (
+                <strong className="measurement-value">
+                  {formatCompactDistance(measurementDistance)}
+                </strong>
+              ) : (
+                <span className="measurement-empty">
+                  Uses the current inclined 3D positions from the orbital model.
+                </span>
+              )}
+              <div className="measurement-picker">
+                {bodies.slice(0, 6).map(body => (
+                  <button
+                    key={body.id}
+                    className={
+                      measurementPair.includes(body.id) ? "is-selected" : ""
+                    }
+                    onClick={() => toggleMeasure(body.id)}
+                  >
+                    {body.name}
+                  </button>
+                ))}
+                {moons.slice(0, 2).map(moon => (
+                  <button
+                    key={moon.id}
+                    className={
+                      measurementPair.includes(moon.id) ? "is-selected" : ""
+                    }
+                    onClick={() => toggleMeasure(moon.id)}
+                  >
+                    {moon.name}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section
+              className={`object-card ${mobilePanelOpen ? "is-open" : ""}`}
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">03 · Live telemetry</p>
+                  <span className="record-id">
+                    ASTRA TELEMETRY / {selectedId.toUpperCase()}
+                  </span>
+                </div>
+                <button
+                  className="focus-object"
+                  onClick={() => setCameraTargetId(selectedId)}
+                >
+                  <Crosshair size={15} /> Focus
+                </button>
+              </header>
+              <div className="object-title">
+                <div
+                  className="object-emblem"
+                  style={
+                    {
+                      "--emblem-color":
+                        selectedMoon?.accent ?? selectedBody.accent,
+                    } as React.CSSProperties
+                  }
+                >
+                  {selectedMoon?.symbol ?? selectedBody.symbol}
+                </div>
+                <div>
+                  <p className="eyebrow">Selected object</p>
+                  <h3>{selectedMoon?.name ?? selectedBody.name}</h3>
+                  <span>
+                    {selectedMoon ? "Major satellite" : selectedBody.category}
+                  </span>
+                </div>
+              </div>
+              <p className="object-description">
+                {selectedMoon?.description ?? selectedBody.description}
+              </p>
+              <dl className="object-readings">
+                {selectedReadings.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+                <div>
+                  <dt>Simulation date</dt>
+                  <dd>{dateInput}</dd>
+                </div>
+                <div>
+                  <dt>Time speed</dt>
+                  <dd>{speedText(speed)}</dd>
+                </div>
+              </dl>
+              <div className="fact-note">
+                <Sparkles size={15} />
+                <p>
+                  <strong>Field note</strong>
+                  {selectedMoon?.fact ?? selectedBody.fact}
+                </p>
+              </div>
+            </section>
+          </div>
+          <section className="feature-grid">
+            <section className="feature-card transfer-card">
+              <header>
+                <div>
+                  <p className="eyebrow">05 · Transfer geometry</p>
+                  <h3>
+                    <Gauge size={16} /> Hohmann transfer
+                  </h3>
+                </div>
+                <span className="inline-status">
+                  {transfer ? "VISIBLE" : "IDEALIZED"}
+                </span>
+              </header>
+              <p className="feature-note">
+                An efficient idealized transfer between approximately coplanar
+                circular orbits. ASTRA shows the geometry, not a launch-window
+                prediction.
+              </p>
+              <div className="transfer-metric">
+                <strong>
+                  ~
+                  {getApproximateMissionDays(
+                    missionFrom,
+                    missionTo,
+                    bodies,
+                    moons
+                  )}{" "}
+                  DAYS
+                </strong>
+                <span>
+                  {bodyName(missionFrom)} → {bodyName(missionTo)}
+                </span>
+              </div>
+              <div className="button-row">
+                <button className="primary-small" onClick={makeTransfer}>
+                  SHOW TRANSFER
+                </button>
+                <button onClick={() => setTransfer(null)}>CLEAR</button>
+              </div>
+            </section>
+            <section className="feature-card experiment-card">
+              <header>
+                <div>
+                  <p className="eyebrow">06 · Orbit experiment</p>
+                  <h3>Change the orbit</h3>
+                </div>
+                <button
+                  onClick={() =>
+                    setExperiment({
+                      semiMajorAxisAU: 1,
+                      eccentricity: 0.2,
+                      inclination: 8,
+                      active: false,
+                    })
+                  }
+                >
+                  <RotateCcw size={14} /> Reset
+                </button>
+              </header>
+              {(
+                [
+                  ["semiMajorAxisAU", "Semi-major axis", 0.4, 2.4, 0.1, " AU"],
+                  ["eccentricity", "Eccentricity", 0, 0.8, 0.01, ""],
+                  ["inclination", "Inclination", 0, 30, 1, "°"],
+                ] as const
+              ).map(([key, label, min, max, step, unit]) => (
+                <label className="slider-row" key={key}>
+                  <span>
+                    {label}
+                    <b>
+                      {experiment[key].toFixed(key === "eccentricity" ? 2 : 1)}
+                      {unit}
+                    </b>
+                  </span>
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={experiment[key]}
+                    onChange={event =>
+                      setExperiment({
+                        ...experiment,
+                        [key]: Number(event.target.value),
+                        active: true,
+                      })
+                    }
+                  />
+                </label>
+              ))}
+              <p className="feature-note">
+                {experiment.eccentricity > 0.45
+                  ? "Higher eccentricity makes the orbit more elongated."
+                  : "Small eccentricity values keep the orbit closer to a circle."}
+              </p>
+            </section>
+            <section className="feature-card scenario-card">
+              <header>
+                <div>
+                  <p className="eyebrow">07 · Mission scenarios</p>
+                  <h3>
+                    <Save size={16} /> Save locally
+                  </h3>
+                </div>
+                <button onClick={saveScenario}>SAVE SCENARIO</button>
+              </header>
+              {scenarios.length ? (
+                scenarios.map(scenario => (
+                  <div className="scenario-row" key={scenario.name}>
+                    <span>{scenario.name}</span>
+                    <button onClick={() => loadScenario(scenario)}>LOAD</button>
+                    <button
+                      onClick={() => deleteScenario(scenario.name)}
+                      aria-label={`Delete ${scenario.name}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="feature-note">
+                  Save your current mission, date, speed, and experiment in this
+                  browser only.
+                </p>
+              )}
+            </section>
+          </section>
+          <section className="tutorial-panel">
+            <div>
+              <p className="eyebrow">
+                Optional field tutorial · {tutorialStep + 1}/7
+              </p>
+              <h3>{tutorialLabels[tutorialStep]}</h3>
+              <p>
+                ASTRA is a small model you can explain: observe a position,
+                change one variable, and compare the result.
+              </p>
+            </div>
+            <div className="button-row">
+              <button
+                onClick={() => setTutorialStep(step => Math.min(6, step + 1))}
+              >
+                {tutorialStep === 6 ? "FINISH TUTORIAL" : "NEXT STEP"}
+              </button>
+              <button onClick={() => setTutorialStep(6)}>SKIP TUTORIAL</button>
+              <button onClick={() => setTutorialStep(0)}>RESTART</button>
+            </div>
+          </section>
+          <div className="system-status" role="status">
+            <span>
+              <i className="status-dot" /> {status}
+            </span>
+            <span>Educational approximation · no full N-body physics</span>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
 }

@@ -210,6 +210,31 @@ button { cursor: pointer; }
         
 /* ASTRA Guide: compact instrument panel */
 .ask-astra-toggle { min-height: 32px; padding: 0 11px; border: 1px solid rgba(246,167,68,.55); color: var(--astra-amber); background: rgba(246,167,68,.08); font: 10px/1 "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
+.mission-control { margin: 17px 0 14px; padding: 17px 19px 13px; border: 1px solid rgba(140,217,232,.2); background: linear-gradient(110deg, rgba(8,25,41,.96), rgba(5,15,27,.82)); box-shadow: inset 3px 0 #f6a744; }
+.mission-control-topline, .mission-control-topline > div, .mission-control-state, .mission-control-controls, .mission-control-controls label, .mission-launch-button, .mission-progress-caption { display: flex; }
+.mission-control-topline { align-items: center; justify-content: space-between; gap: 12px; }
+.mission-control-topline h3 { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: #edf5f7; font-size: 16px; font-weight: 500; }
+.mission-control-topline h3 svg { color: var(--astra-amber); }
+.mission-control-state { align-items: center; gap: 7px; color: #7b929d; font: 9px "IBM Plex Mono",monospace; letter-spacing: .09em; }
+.mission-control-state i { width: 6px; height: 6px; border-radius: 50%; background: #71838c; }
+.mission-control-state.is-active { color: #7bd6c3; }
+.mission-control-state.is-active i { background: #7bd6c3; box-shadow: 0 0 10px #7bd6c3; }
+.mission-control-controls { align-items: end; gap: 11px; margin-top: 14px; }
+.mission-control-controls label { min-width: 0; flex: 1; flex-direction: column; gap: 6px; color: #7895a1; font: 8px "IBM Plex Mono",monospace; letter-spacing: .1em; text-transform: uppercase; }
+.mission-control-controls select { width: 100%; min-height: 37px; border: 1px solid rgba(128,193,214,.22); border-radius: 0; padding: 0 10px; color: #e4f0f2; background: #081827; font: 12px "Space Grotesk",sans-serif; }
+.mission-route-arrow { padding-bottom: 10px; color: var(--astra-amber); }
+.mission-control-estimate { min-width: 105px; padding: 0 12px 3px; border-left: 1px solid rgba(128,193,214,.17); }
+.mission-control-estimate span { display: block; margin-bottom: 6px; color: #7895a1; font: 8px "IBM Plex Mono",monospace; letter-spacing: .1em; }
+.mission-control-estimate strong { color: #d5e8ec; font: 14px "IBM Plex Mono",monospace; }
+.mission-control-estimate small { color: #849eaa; font-size: 9px; font-weight: 400; }
+.mission-launch-button { min-height: 37px; align-items: center; justify-content: center; gap: 7px; padding: 0 16px; border: 1px solid var(--astra-amber); color: #06111b; background: var(--astra-amber); font: 600 10px "IBM Plex Mono",monospace; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.mission-launch-button:hover { background: #ffc36f; }
+.mission-control-progress { margin-top: 14px; }
+.mission-progress-track { height: 3px; overflow: hidden; background: rgba(140,217,232,.12); }
+.mission-progress-track i { display: block; height: 100%; background: linear-gradient(90deg,#f6a744,#7bd6c3); transition: width .35s ease; }
+.mission-progress-caption { justify-content: space-between; gap: 12px; margin-top: 7px; color: #7e98a4; font: 8px "IBM Plex Mono",monospace; letter-spacing: .04em; text-transform: uppercase; }
+.mission-progress-caption b { margin: 0 5px; color: var(--astra-amber); }
+@media (max-width: 640px) { .mission-control { padding: 14px; }.mission-control-controls { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; }.mission-control-estimate { grid-column: 1 / 2; border-left: 0; padding: 4px 0 0; }.mission-launch-button { grid-column: 2 / 4; }.mission-control-estimate span { margin-bottom: 4px; }.mission-progress-caption { font-size: 7px; }.mission-progress-caption span:last-child { text-align: right; } }
 .ask-astra-toggle:hover { color: #071523; background: var(--astra-amber); }
 .astra-guide-panel { position: fixed; z-index: 50; top: 84px; right: clamp(14px, 3vw, 44px); display: grid; grid-template-rows: auto auto minmax(0,1fr) auto auto; width: min(390px, calc(100vw - 28px)); height: min(740px, calc(100dvh - 100px)); min-height: 360px; border: 1px solid rgba(140,217,232,.28); color: var(--astra-ice); background: rgba(4,13,24,.98); box-shadow: 0 18px 65px rgba(0,0,0,.5); }
 .astra-guide-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 12px; border-bottom: 1px solid var(--astra-line); }
