@@ -2,21 +2,9 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { Body } from "@/data/bodies";
 import type { Moon } from "@/data/moons";
+import type { Experiment, Mission, Transfer } from "@/lib/mission";
 import { getOrbitalPosition, getVisualSemiMajorAxis } from "@/lib/orbital";
 
-type Mission = {
-  from: string;
-  to: string;
-  launchedAt: number;
-  travelDays: number;
-} | null;
-type Transfer = { from: string; to: string } | null;
-type Experiment = {
-  semiMajorAxisAU: number;
-  eccentricity: number;
-  inclination: number;
-  active: boolean;
-};
 type Props = {
   bodies: Body[];
   moons: Moon[];
@@ -38,17 +26,64 @@ type Node = {
 };
 
 const HOME = new THREE.Vector3(0, 7.8, 10.5);
-const BACKDROP = 0x030a15;
+const BACKDROP = 0x050a12;
+/**
+ * Sphere radii are halved against the data so that every orbit stays visibly
+ * wider than the world inside it. The numbers that matter are unaffected —
+ * distances are measured from the orbital model, not from this drawing.
+ */
+const BODY_SCALE = 0.5;
+const MIN_PICK_RADIUS = 0.16;
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-function planetMaterial(color: number, sun = false) {
+/**
+ * A moon's drawn orbit has to clear its planet's drawn sphere, otherwise Io
+ * disappears inside Jupiter. Kept in one place so the ring and the moon itself
+ * can never disagree.
+ */
+function moonOrbitRadius(moon: Moon, parent?: Body) {
+  const parentRadius = (parent?.visualRadius ?? 0.2) * BODY_SCALE;
+  return (
+    parentRadius * 1.4 +
+    0.1 +
+    Math.min(0.3, moon.distanceFromParentKm / 6_000_000)
+  );
+}
+
+/** Invisible, slightly oversized click target so small worlds stay selectable. */
+function pickSphere(id: string, radius: number) {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(radius, MIN_PICK_RADIUS), 10, 8),
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+  );
+  mesh.userData.bodyId = id;
+  return mesh;
+}
+
+/**
+ * A fixed random source for the star field: the sky is dressing, but it should
+ * be the same sky every time the page loads.
+ */
+function seededRandom(seed: number) {
+  let state = seed;
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296;
+  };
+}
+
+function planetMaterial(color: number) {
   return new THREE.MeshStandardMaterial({
     color,
     roughness: 0.86,
     metalness: 0.03,
-    emissive: sun ? 0xd16a11 : color,
-    emissiveIntensity: sun ? 0.6 : 0.035,
+    emissive: color,
+    emissiveIntensity: 0.035,
   });
 }
 function orbitLine(points: THREE.Vector3[], color = 0x70c9dc, opacity = 0.18) {
@@ -56,6 +91,22 @@ function orbitLine(points: THREE.Vector3[], color = 0x70c9dc, opacity = 0.18) {
     new THREE.BufferGeometry().setFromPoints(points),
     new THREE.LineBasicMaterial({ color, transparent: true, opacity })
   );
+  return line;
+}
+
+/** Dashed so a visitor's own experimental orbit never reads as a real one. */
+function dashedLine(points: THREE.Vector3[], color: number, opacity: number) {
+  const line = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineDashedMaterial({
+      color,
+      transparent: true,
+      opacity,
+      dashSize: 0.16,
+      gapSize: 0.12,
+    })
+  );
+  line.computeLineDistances();
   return line;
 }
 function orbitPoints(
@@ -83,7 +134,7 @@ function orbitPoints(
 function moonPosition(moon: Moon, parent: Body, day: number) {
   const parentPos = getOrbitalPosition(parent, day);
   const angle = (day / moon.orbitalPeriodDays) * Math.PI * 2;
-  const radius = 0.12 + Math.min(0.35, moon.distanceFromParentKm / 5_000_000);
+  const radius = moonOrbitRadius(moon, parent);
   return new THREE.Vector3(
     parentPos.x + Math.cos(angle) * radius,
     parentPos.y + Math.sin(angle) * radius * 0.2,
@@ -161,10 +212,11 @@ export function SolarSystemCanvas({
     scene.add(sunLight);
     const stars = new THREE.BufferGeometry();
     const starPositions = new Float32Array(480 * 3);
+    const random = seededRandom(20250101);
     for (let i = 0; i < 480; i += 1) {
-      const r = 16 + Math.random() * 22;
-      const t = Math.random() * Math.PI * 2;
-      const p = Math.acos(2 * Math.random() - 1);
+      const r = 16 + random() * 22;
+      const t = random() * Math.PI * 2;
+      const p = Math.acos(2 * random() - 1);
       starPositions[i * 3] = r * Math.sin(p) * Math.cos(t);
       starPositions[i * 3 + 1] = r * Math.cos(p);
       starPositions[i * 3 + 2] = r * Math.sin(p) * Math.sin(t);
@@ -182,21 +234,27 @@ export function SolarSystemCanvas({
       )
     );
     const nodes: Node[] = [];
+    const pickables: THREE.Object3D[] = [];
     const sun = bodies.find(body => body.id === "sun");
     if (sun) {
+      // The star is the one body here that emits rather than reflects, so it is
+      // drawn self-lit instead of shaded.
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(sun.visualRadius, 24, 16),
-        planetMaterial(sun.color, true)
+        new THREE.SphereGeometry(sun.visualRadius * BODY_SCALE, 24, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffd79a })
       );
       mesh.userData.bodyId = sun.id;
+      const picker = pickSphere(sun.id, sun.visualRadius * BODY_SCALE + 0.06);
+      mesh.add(picker);
+      pickables.push(picker);
       scene.add(mesh);
       scene.add(
         new THREE.Mesh(
-          new THREE.SphereGeometry(sun.visualRadius * 1.35, 20, 14),
+          new THREE.SphereGeometry(sun.visualRadius * BODY_SCALE * 1.7, 20, 14),
           new THREE.MeshBasicMaterial({
-            color: 0xf6a744,
+            color: 0xf0a343,
             transparent: true,
-            opacity: 0.09,
+            opacity: 0.14,
             side: THREE.BackSide,
           })
         )
@@ -204,11 +262,15 @@ export function SolarSystemCanvas({
       nodes.push({ id: sun.id, mesh });
     }
     for (const body of bodies.filter(item => item.id !== "sun")) {
+      const radius = body.visualRadius * BODY_SCALE;
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(body.visualRadius, 14, 10),
+        new THREE.SphereGeometry(radius, 14, 10),
         planetMaterial(body.color)
       );
       mesh.userData.bodyId = body.id;
+      const picker = pickSphere(body.id, radius + 0.03);
+      mesh.add(picker);
+      pickables.push(picker);
       const orbit = orbitLine(
         orbitPoints(
           getVisualSemiMajorAxis(body),
@@ -228,11 +290,7 @@ export function SolarSystemCanvas({
       nodes.push({ id: body.id, mesh, orbit, velocity });
       if (body.id === "saturn") {
         const ring = new THREE.Mesh(
-          new THREE.RingGeometry(
-            body.visualRadius * 1.35,
-            body.visualRadius * 2.05,
-            30
-          ),
+          new THREE.RingGeometry(radius * 1.35, radius * 2.05, 30),
           new THREE.MeshBasicMaterial({
             color: 0xc6b47f,
             side: THREE.DoubleSide,
@@ -245,22 +303,24 @@ export function SolarSystemCanvas({
       }
     }
     const moonNodes = moons.map(moon => {
+      const parent = bodies.find(body => body.id === moon.parentId);
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(moon.visualRadius, 10, 8),
+        new THREE.SphereGeometry(moon.visualRadius * BODY_SCALE, 10, 8),
         planetMaterial(moon.color)
       );
       mesh.userData.bodyId = moon.id;
-      const orbit = orbitLine(
-        orbitPoints(
-          0.12 + Math.min(0.35, moon.distanceFromParentKm / 5_000_000),
-          0,
-          18
-        ),
-        moon.color,
-        0.25
-      );
-      scene.add(mesh, orbit);
-      return { moon, mesh, orbit };
+      const radius = moonOrbitRadius(moon, parent);
+      const picker = pickSphere(moon.id, Math.min(0.15, radius * 0.5));
+      mesh.add(picker);
+      pickables.push(picker);
+      // The ring belongs around the parent, so it is parented to that planet.
+      const orbit = orbitLine(orbitPoints(radius, 0, 18), moon.color, 0.22);
+      (parent
+        ? nodes.find(node => node.id === parent.id)?.mesh
+        : undefined
+      )?.add(orbit);
+      scene.add(mesh);
+      return { moon, mesh, orbit, parent };
     });
     let transferLine: THREE.LineLoop | null = null;
     let experimentLine: THREE.LineLoop | null = null;
@@ -295,10 +355,8 @@ export function SolarSystemCanvas({
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      return raycaster.intersectObjects(
-        nodes.map(node => node.mesh).concat(moonNodes.map(item => item.mesh)),
-        false
-      )[0]?.object.userData.bodyId as string | undefined;
+      return raycaster.intersectObjects(pickables, false)[0]?.object.userData
+        .bodyId as string | undefined;
     };
     const onDown = (event: PointerEvent) => {
       down = true;
@@ -345,7 +403,9 @@ export function SolarSystemCanvas({
         if (!body) continue;
         const pos = getOrbitalPosition(body, day);
         node.mesh.position.set(pos.x, pos.y, pos.z);
-        node.mesh.rotation.y += 0.003;
+        // Spin tied to the model clock, so rotation reads as "time is running"
+        // rather than as an idle animation.
+        node.mesh.rotation.y = day * 0.35;
         if (node.orbit) node.orbit.visible = orbitVisibleRef.current;
         if (node.velocity) {
           node.velocity.visible = velocityVisibleRef.current;
@@ -369,9 +429,9 @@ export function SolarSystemCanvas({
         node.mesh.scale.setScalar(selectedRef.current === node.id ? 1.18 : 1);
       }
       for (const item of moonNodes) {
-        const parent = bodies.find(body => body.id === item.moon.parentId);
-        if (parent)
-          item.mesh.position.copy(moonPosition(item.moon, parent, day));
+        if (item.parent) {
+          item.mesh.position.copy(moonPosition(item.moon, item.parent, day));
+        }
         item.orbit.visible = orbitVisibleRef.current;
         item.mesh.scale.setScalar(
           selectedRef.current === item.moon.id ? 1.35 : 1
@@ -445,13 +505,14 @@ export function SolarSystemCanvas({
         } as Body);
         const points = orbitPoints(a, exp.eccentricity, exp.inclination);
         if (!experimentLine) {
-          experimentLine = orbitLine(points, 0xf6a744, 0.8);
+          experimentLine = dashedLine(points, 0xf0a343, 0.85);
           scene.add(experimentLine);
         } else {
           experimentLine.geometry.dispose();
           experimentLine.geometry = new THREE.BufferGeometry().setFromPoints(
             points
           );
+          experimentLine.computeLineDistances();
         }
         lastExperimentKey = experimentKey;
       }
@@ -470,10 +531,10 @@ export function SolarSystemCanvas({
         distance +=
           ((targetBody?.id === "sun"
             ? 6.5
-            : targetBody && targetBody.visualRadius > 0.22
+            : targetBody && targetBody.visualRadius > 0.4
               ? 7.2
               : focusedMoon
-                ? 4.8
+                ? 4.2
                 : 5.4) -
             distance) *
           0.035;

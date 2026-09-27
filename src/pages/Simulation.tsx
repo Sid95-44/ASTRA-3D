@@ -1,27 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
   Crosshair,
-  Gauge,
-  Info,
   Pause,
   Play,
   RotateCcw,
   Ruler,
-  Save,
-  Sparkles,
   Target,
   Trash2,
   X,
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
-import { SolarSystemCanvas } from "@/components/canvas/SolarSystemCanvas";
 import { AstraGuide } from "@/components/AstraGuide";
-import type { GuideContext } from "@/lib/astraGuide";
+import { AstraMark } from "@/components/AstraMark";
+import { SolarSystemCanvas } from "@/components/canvas/SolarSystemCanvas";
+import { AmberTools } from "@/components/simulation/AmberTools";
+import { FlightDesk } from "@/components/simulation/FlightDesk";
+import { Notebook } from "@/components/simulation/Notebook";
 import { bodies, getBody } from "@/data/bodies";
 import { moons, getMoon } from "@/data/moons";
+import type { GuideContext } from "@/lib/astraGuide";
+import {
+  DEFAULT_EXPERIMENT,
+  describeExperiment,
+  describeFlight,
+  getMissionProgress,
+  type Experiment,
+  type Mission,
+  type Transfer,
+} from "@/lib/mission";
 import {
   formatCompactDistance,
   getApproximateMissionDays,
@@ -30,6 +39,20 @@ import {
   getDistanceBetweenObjectsKm,
   getSimulatedDate,
 } from "@/lib/orbital";
+import {
+  appendNote,
+  clearNotebook,
+  formatNoteTime,
+  markHintSeen,
+  newId,
+  readMemory,
+  readNotebook,
+  relativeTime,
+  updateMemory,
+  type Memory,
+  type NotebookEntry,
+  type NotebookKind,
+} from "@/lib/session";
 
 const SPEEDS = [1, 10, 100, 1000, 10000, 100000];
 const formatter = new Intl.DateTimeFormat("en-GB", {
@@ -38,20 +61,8 @@ const formatter = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
   timeZone: "UTC",
 });
-type Mission = {
-  from: string;
-  to: string;
-  launchedAt: number;
-  travelDays: number;
-} | null;
-type Transfer = { from: string; to: string } | null;
-type Experiment = {
-  semiMajorAxisAU: number;
-  eccentricity: number;
-  inclination: number;
-  active: boolean;
-};
-type Scenario = {
+
+type SavedRun = {
   name: string;
   selectedId: string;
   simulatedDay: number;
@@ -61,12 +72,7 @@ type Scenario = {
   transfer: Transfer;
 };
 
-function speedText(value: number) {
-  return `${value.toLocaleString("en-US")}×`;
-}
-function bodyName(id: string) {
-  return getCelestialName(id, bodies, moons);
-}
+const speedText = (value: number) => `${value.toLocaleString("en-US")}×`;
 
 export default function Simulation() {
   const [selectedId, setSelectedId] = useState("earth");
@@ -77,26 +83,39 @@ export default function Simulation() {
   const [showVelocity, setShowVelocity] = useState(false);
   const [cameraTargetId, setCameraTargetId] = useState<string | null>(null);
   const [measurementPair, setMeasurementPair] = useState<string[]>([]);
-  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [dateInput, setDateInput] = useState("2025-01-01");
-  const [missionFrom, setMissionFrom] = useState("earth");
-  const [missionTo, setMissionTo] = useState("mars");
+  const [flightFrom, setFlightFrom] = useState("earth");
+  const [flightTo, setFlightTo] = useState("mars");
   const [mission, setMission] = useState<Mission>(null);
   const [transfer, setTransfer] = useState<Transfer>(null);
-  const [experiment, setExperiment] = useState<Experiment>({
-    semiMajorAxisAU: 1,
-    eccentricity: 0.2,
-    inclination: 8,
-    active: false,
-  });
-  const [tutorialStep, setTutorialStep] = useState(0);
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [status, setStatus] = useState("SYSTEM NOMINAL");
+  const [experiment, setExperiment] = useState<Experiment>(DEFAULT_EXPERIMENT);
+  const [runs, setRuns] = useState<SavedRun[]>([]);
+  const [status, setStatus] = useState(
+    "Nothing drawn yet. The clock starts at the model epoch, 1 Jan 2025."
+  );
   const [guideOpen, setGuideOpen] = useState(false);
+  const [entries, setEntries] = useState<NotebookEntry[]>([]);
+  const [memory, setMemory] = useState<Memory>({
+    visits: 0,
+    lastBodyName: null,
+    lastSeenAt: null,
+    hintsSeen: [],
+  });
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [storageWorks, setStorageWorks] = useState(true);
+
   const speed = SPEEDS[speedIndex];
   const simulatedDate = getSimulatedDate(simulatedDay);
+  const dateLabel = formatter.format(simulatedDate);
   const selectedBody = getBody(selectedId);
   const selectedMoon = getMoon(selectedId);
+  const selectedRecord = selectedMoon ?? selectedBody;
+  const selectedName = selectedRecord.name;
+  const nameOf = useCallback(
+    (id: string) => getCelestialName(id, bodies, moons),
+    []
+  );
+
   const measurementDistance =
     measurementPair.length === 2
       ? getDistanceBetweenObjectsKm(
@@ -107,38 +126,45 @@ export default function Simulation() {
           simulatedDay
         )
       : null;
-  const missionDays = mission ? Math.max(1, mission.travelDays) : 0;
-  const missionProgress = mission
-    ? Math.min(
-        100,
-        Math.round(((simulatedDay - mission.launchedAt) / missionDays) * 100)
-      )
-    : 0;
-  const guideContext: GuideContext = useMemo(
-    () => ({
-      selectedBody,
-      simulatedDay,
-      simulatedDateLabel: formatter.format(simulatedDate),
-      speedMultiplier: speed,
-      measurement:
-        measurementPair.length === 2 && measurementDistance !== null
-          ? {
-              firstName: bodyName(measurementPair[0]),
-              secondName: bodyName(measurementPair[1]),
-              distanceKm: measurementDistance,
-              formattedDistance: formatCompactDistance(measurementDistance),
-            }
-          : null,
-    }),
-    [
-      selectedBody,
-      simulatedDay,
-      simulatedDate,
-      speed,
-      measurementPair,
-      measurementDistance,
-    ]
+  const measurementKey =
+    measurementPair.length === 2
+      ? `${measurementPair[0]}:${measurementPair[1]}`
+      : "";
+
+  // A previous reading for the same pair, so ASTRA can compare instead of hedging.
+  const [sample, setSample] = useState<{
+    key: string;
+    km: number;
+    formatted: string;
+  } | null>(null);
+
+  // Refs that outlive renders: the notebook writer, the mount guard, and the
+  // clock/distance values read from inside timers.
+  const dateLabelRef = useRef(dateLabel);
+  dateLabelRef.current = dateLabel;
+  const nameRef = useRef(selectedName);
+  nameRef.current = selectedName;
+  const distanceRef = useRef<number | null>(measurementDistance);
+  distanceRef.current = measurementDistance;
+  const mountGuard = useRef(false);
+  const lastLookRef = useRef<string | null>(null);
+
+  const note = useCallback(
+    (kind: NotebookKind, text: string) => {
+      if (!storageWorks) return;
+      const entry: NotebookEntry = {
+        id: newId(),
+        kind,
+        at: Date.now(),
+        modelDate: dateLabelRef.current,
+        text,
+      };
+      setEntries(appendNote(entry));
+    },
+    [storageWorks]
   );
+
+  // --- clock ----------------------------------------------------------------
   useEffect(() => {
     if (!isPlaying) return undefined;
     const timer = window.setInterval(
@@ -147,100 +173,250 @@ export default function Simulation() {
     );
     return () => window.clearInterval(timer);
   }, [isPlaying, speed]);
+
   useEffect(() => {
     setDateInput(simulatedDate.toISOString().slice(0, 10));
   }, [simulatedDate]);
+
+  // --- what this browser remembers -----------------------------------------
   useEffect(() => {
+    if (mountGuard.current) return;
+    mountGuard.current = true;
     try {
-      const stored = localStorage.getItem("astra-scenarios");
-      if (stored) setScenarios(JSON.parse(stored) as Scenario[]);
+      setRuns(
+        JSON.parse(localStorage.getItem("astra-runs") ?? "[]") as SavedRun[]
+      );
+      setEntries(readNotebook());
     } catch {
-      setStatus("SCENARIO DATA UNAVAILABLE");
+      setStorageWorks(false);
+      setStatus(
+        "This browser is blocking local storage, so saved runs and notebook notes are off."
+      );
     }
+    const stored = readMemory();
+    setMemory(stored);
+    updateMemory({ visits: stored.visits + 1, lastSeenAt: Date.now() });
+    return () => {
+      const name = nameRef.current;
+      updateMemory({ lastBodyName: name, lastSeenAt: Date.now() });
+    };
   }, []);
-  const selectedReadings = useMemo(
-    () =>
-      selectedMoon
-        ? [
-            ["Diameter", selectedMoon.diameter],
-            ["Parent", bodyName(selectedMoon.parentId)],
-            ["Orbital period", `${selectedMoon.orbitalPeriodDays} days`],
-            [
-              "Parent distance",
-              `${selectedMoon.distanceFromParentKm.toLocaleString()} km`,
-            ],
-          ]
-        : [
-            ["Diameter", selectedBody.diameter],
-            ["Mass", selectedBody.mass],
-            ["Solar distance", selectedBody.solarDistance],
-            ["Orbital period", selectedBody.orbitalPeriod],
-            ["Orbital velocity", selectedBody.orbitalVelocity],
-            ["Eccentricity", selectedBody.eccentricity.toFixed(3)],
-            ["Inclination", `${selectedBody.inclination.toFixed(1)}°`],
-            ["Moons", String(selectedBody.moons)],
-          ],
-    [selectedBody, selectedMoon]
+
+  // --- notebook: only write down things that actually happened --------------
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (lastLookRef.current === selectedName) return;
+      lastLookRef.current = selectedName;
+      note("looked", `Looked at ${selectedName}.`);
+    }, 2_500);
+    return () => window.clearTimeout(timer);
+  }, [selectedName, note]);
+
+  useEffect(() => {
+    if (!experiment.active) return undefined;
+    const timer = window.setTimeout(
+      () =>
+        note(
+          "experiment",
+          `Set the experimental orbit to ${describeExperiment(experiment)}.`
+        ),
+      1_400
+    );
+    return () => window.clearTimeout(timer);
+  }, [experiment, note]);
+
+  const arrivalRef = useRef<string | null>(null);
+  const missionProgress = getMissionProgress(mission, simulatedDay);
+  useEffect(() => {
+    if (!mission || missionProgress < 100) return;
+    const key = `${mission.from}:${mission.to}:${mission.launchedAt}`;
+    if (arrivalRef.current === key) return;
+    arrivalRef.current = key;
+    note("flight", `The flight to ${nameOf(mission.to)} arrived.`);
+  }, [mission, missionProgress, nameOf, note]);
+
+  // A comparison sample is only ever an *earlier* reading: the first one lands
+  // about half a minute after a pair is chosen, never at the moment of choice,
+  // so "are they getting closer?" compares against the past, not against
+  // itself.
+  useEffect(() => {
+    if (!measurementKey) {
+      setSample(null);
+      return undefined;
+    }
+    const read = () => {
+      const km = distanceRef.current;
+      if (km === null) return;
+      setSample({
+        key: measurementKey,
+        km,
+        formatted: formatCompactDistance(km),
+      });
+    };
+    const timer = window.setInterval(read, 30_000);
+    return () => window.clearInterval(timer);
+  }, [measurementKey]);
+
+  // --- guide context --------------------------------------------------------
+  const guideContext: GuideContext = useMemo(
+    () => ({
+      selectedBody,
+      simulatedDay,
+      simulatedDateLabel: dateLabel,
+      speedMultiplier: speed,
+      measurement:
+        measurementPair.length === 2 && measurementDistance !== null
+          ? {
+              firstName: nameOf(measurementPair[0]),
+              secondName: nameOf(measurementPair[1]),
+              distanceKm: measurementDistance,
+              formattedDistance: formatCompactDistance(measurementDistance),
+              previousFormattedDistance:
+                sample?.key === measurementKey ? sample.formatted : undefined,
+              previousDistanceKm:
+                sample?.key === measurementKey ? sample.km : undefined,
+            }
+          : null,
+      activity: {
+        experiment: experiment.active ? describeExperiment(experiment) : null,
+        flight:
+          mission && missionProgress < 100
+            ? describeFlight(mission, simulatedDay, nameOf)
+            : null,
+        transfer: transfer
+          ? `${nameOf(transfer.from)} to ${nameOf(transfer.to)}`
+          : null,
+      },
+      memory: {
+        recent: [...entries]
+          .reverse()
+          .slice(0, 3)
+          .map(entry => ({ text: entry.text, when: formatNoteTime(entry) })),
+        visits: memory.visits,
+        lastBodyName: memory.lastBodyName,
+        lastSeenLabel: memory.lastSeenAt
+          ? relativeTime(memory.lastSeenAt)
+          : null,
+      },
+    }),
+    [
+      selectedBody,
+      simulatedDay,
+      dateLabel,
+      speed,
+      measurementPair,
+      measurementDistance,
+      sample,
+      nameOf,
+      experiment,
+      mission,
+      missionProgress,
+      transfer,
+      entries,
+      memory,
+    ]
   );
-  const handleSelect = (id: string) => {
+
+  // --- actions --------------------------------------------------------------
+  const selectBody = (id: string) => {
     setSelectedId(id);
     setCameraTargetId(null);
   };
+
   const launchMission = () => {
-    if (missionFrom === missionTo) {
-      setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS");
+    if (flightFrom === flightTo) {
+      setStatus("That's the same world twice. Pick two different ones.");
       return;
     }
-    const days = getApproximateMissionDays(
-      missionFrom,
-      missionTo,
+    const travelDays = getApproximateMissionDays(
+      flightFrom,
+      flightTo,
       bodies,
       moons
     );
     setMission({
-      from: missionFrom,
-      to: missionTo,
+      from: flightFrom,
+      to: flightTo,
       launchedAt: simulatedDay,
-      travelDays: days,
+      travelDays,
     });
-    setStatus("MISSION LAUNCHED · EDUCATIONAL TRANSFER");
-  };
-  const makeTransfer = () => {
-    if (missionFrom === missionTo) {
-      setStatus("ERROR: CHOOSE TWO DIFFERENT WORLDS");
-      return;
-    }
-    if (moons.some(moon => moon.id === missionFrom || moon.id === missionTo)) {
-      setTransfer(null);
-      setStatus("HOHMANN TRANSFERS USE PLANETARY ORBITS ONLY");
-      return;
-    }
-    setTransfer({ from: missionFrom, to: missionTo });
     setStatus(
-      `HOHMANN TRANSFER READY · ~${getApproximateMissionDays(missionFrom, missionTo, bodies, moons)} DAYS`
+      `Launched: ${nameOf(flightFrom)} → ${nameOf(flightTo)}, about ${travelDays.toLocaleString(
+        "en-US"
+      )} days of interpolated travel.`
+    );
+    note(
+      "flight",
+      `Launched a flight from ${nameOf(flightFrom)} to ${nameOf(flightTo)}, about ${travelDays.toLocaleString("en-US")} days.`
     );
   };
-  const reset = () => {
+
+  const drawTransfer = () => {
+    if (flightFrom === flightTo) {
+      setStatus("That's the same world twice. Pick two different ones.");
+      return;
+    }
+    if (moons.some(moon => moon.id === flightFrom || moon.id === flightTo)) {
+      setTransfer(null);
+      setStatus(
+        "Hohmann transfers only make sense between planetary orbits — swap the moon for a planet."
+      );
+      return;
+    }
+    const days = getApproximateMissionDays(flightFrom, flightTo, bodies, moons);
+    setTransfer({ from: flightFrom, to: flightTo });
+    setStatus(
+      `Transfer drawn: ${nameOf(flightFrom)} → ${nameOf(flightTo)}, roughly ${days.toLocaleString(
+        "en-US"
+      )} days on the half-ellipse.`
+    );
+    note(
+      "experiment",
+      `Drew a Hohmann transfer from ${nameOf(flightFrom)} to ${nameOf(flightTo)} — about ${days.toLocaleString("en-US")} days.`
+    );
+  };
+
+  const resetView = () => {
     setIsPlaying(false);
     setSpeedIndex(0);
     setSimulatedDay(0);
     setMission(null);
     setTransfer(null);
     setDateInput("2025-01-01");
-    setStatus("SYSTEM RESET");
+    setStatus("Reset. Back to 1 Jan 2025, 1× speed, nothing drawn.");
   };
-  const toggleMeasure = (id: string) =>
-    setMeasurementPair(pair =>
-      pair.includes(id)
+
+  const toggleMeasure = (id: string) => {
+    setMeasurementPair(pair => {
+      const next = pair.includes(id)
         ? pair.filter(item => item !== id)
         : pair.length === 2
           ? [pair[1], id]
-          : [...pair, id]
-    );
-  const saveScenario = () => {
-    const name = `${bodyName(missionFrom)} → ${bodyName(missionTo)}`;
+          : [...pair, id];
+      if (next.length === 2) {
+        const km = getDistanceBetweenObjectsKm(
+          next[0],
+          next[1],
+          bodies,
+          moons,
+          simulatedDay
+        );
+        note(
+          "measured",
+          `Measured ${nameOf(next[0])} → ${nameOf(next[1])}: ${formatCompactDistance(km)}.`
+        );
+        setStatus(
+          `${nameOf(next[0])} and ${nameOf(next[1])} are ${formatCompactDistance(km)} apart in the model right now.`
+        );
+      }
+      return next;
+    });
+  };
+
+  const saveRun = () => {
+    const name = `${nameOf(flightFrom)} → ${nameOf(flightTo)}`;
     const next = [
-      ...scenarios.filter(item => item.name !== name),
+      ...runs.filter(run => run.name !== name),
       {
         name,
         selectedId,
@@ -251,82 +427,176 @@ export default function Simulation() {
         transfer,
       },
     ];
-    setScenarios(next);
-    localStorage.setItem("astra-scenarios", JSON.stringify(next));
-    setStatus("SCENARIO SAVED LOCALLY");
+    setRuns(next);
+    if (storageWorks) localStorage.setItem("astra-runs", JSON.stringify(next));
+    setStatus(`Saved this run as “${name}”. It lives in this browser only.`);
+    note("saved", `Saved the run “${name}” at ${dateLabel}.`);
   };
-  const loadScenario = (scenario: Scenario) => {
-    setSelectedId(scenario.selectedId);
-    setSimulatedDay(scenario.simulatedDay);
-    setSpeedIndex(scenario.speedIndex);
-    setExperiment(scenario.experiment);
-    setMission(scenario.mission);
-    setTransfer(scenario.transfer);
-    setStatus(`SCENARIO LOADED · ${scenario.name}`);
+
+  const loadRun = (run: SavedRun) => {
+    setSelectedId(run.selectedId);
+    setSimulatedDay(run.simulatedDay);
+    setSpeedIndex(run.speedIndex);
+    setExperiment(run.experiment);
+    setMission(run.mission);
+    setTransfer(run.transfer);
+    setStatus(
+      `Loaded “${run.name}” — date, speed, and geometry all came back.`
+    );
   };
-  const deleteScenario = (name: string) => {
-    const next = scenarios.filter(item => item.name !== name);
-    setScenarios(next);
-    localStorage.setItem("astra-scenarios", JSON.stringify(next));
-    setStatus("SCENARIO DELETED");
+
+  const deleteRun = (name: string) => {
+    const next = runs.filter(run => run.name !== name);
+    setRuns(next);
+    if (storageWorks) localStorage.setItem("astra-runs", JSON.stringify(next));
+    setStatus(`Deleted “${name}”.`);
   };
-  const tutorialLabels = [
-    "Select Earth from the object register.",
-    "Enable orbital paths to reveal the geometry.",
-    "Increase the simulation speed.",
-    "Select Mars and compare the telemetry.",
-    "Create a Hohmann transfer.",
-    "Launch a simple spacecraft mission.",
-    "Change eccentricity in the experiment.",
+
+  const dismissHint = (id: string) => {
+    markHintSeen(id);
+    setDismissed(current =>
+      current.includes(id) ? current : [...current, id]
+    );
+    setMemory(current => ({
+      ...current,
+      hintsSeen: [...current.hintsSeen, id],
+    }));
+  };
+
+  const hint = useMemo(() => {
+    const hidden = new Set([...dismissed, ...memory.hintsSeen]);
+    const returning =
+      memory.visits > 1 && memory.lastBodyName && memory.lastSeenAt;
+    if (returning && !hidden.has("return")) {
+      return {
+        id: "return",
+        text: `Last visit you were on ${memory.lastBodyName} ${relativeTime(
+          memory.lastSeenAt!
+        )}. The notebook kept the notes, so nothing here starts from zero.`,
+      };
+    }
+    if (entries.length === 0 && !hidden.has("stage")) {
+      return {
+        id: "stage",
+        text: "Click a world to select it. Drag to walk the camera around, scroll to zoom in.",
+      };
+    }
+    if (measurementPair.length === 1) {
+      return {
+        id: "measure",
+        text: "One more: pick a second world and ASTRA measures the gap between their live positions.",
+      };
+    }
+    if (experiment.active && !transfer && !mission) {
+      return {
+        id: "experiment",
+        text: "That amber ring is your orbit, not a planet's. Move a slider and compare it with the real paths.",
+      };
+    }
+    if (!guideOpen && selectedId !== "earth" && !hidden.has("guide")) {
+      return {
+        id: "guide",
+        text: `ASTRA reads the model underneath — try asking it about ${selectedName}.`,
+      };
+    }
+    return null;
+  }, [
+    dismissed,
+    memory,
+    entries.length,
+    measurementPair.length,
+    experiment.active,
+    transfer,
+    mission,
+    guideOpen,
+    selectedId,
+    selectedName,
+  ]);
+
+  const selectedReadings = useMemo(
+    () =>
+      selectedMoon
+        ? [
+            ["Diameter", selectedMoon.diameter],
+            ["Parent", nameOf(selectedMoon.parentId)],
+            ["Orbital period", `${selectedMoon.orbitalPeriodDays} days`],
+            [
+              "Distance from parent",
+              `${selectedMoon.distanceFromParentKm.toLocaleString()} km`,
+            ],
+          ]
+        : [
+            ["Diameter", selectedBody.diameter],
+            ["Mass", selectedBody.mass],
+            ["Distance from the Sun", selectedBody.solarDistance],
+            ["Orbital period", selectedBody.orbitalPeriod],
+            ["Orbital velocity", selectedBody.orbitalVelocity],
+            ["Eccentricity", selectedBody.eccentricity.toFixed(3)],
+            ["Inclination", `${selectedBody.inclination.toFixed(2)}°`],
+            ["Moons", String(selectedBody.moons)],
+          ],
+    [selectedBody, selectedMoon, nameOf]
+  );
+
+  const flightOptions = [
+    ...bodies
+      .filter(body => body.id !== "sun")
+      .map(body => ({ id: body.id, name: body.name })),
+    ...moons.map(moon => ({
+      id: moon.id,
+      name: `${moon.name} (moon of ${nameOf(moon.parentId)})`,
+    })),
   ];
 
   return (
-    <main className="simulation-page">
-      <header className="simulation-topbar">
-        <Link href="/" className="simulation-brand">
-          <img
-            src="/manus-storage/astra-split-orbit-mark_fd8718c3.png"
-            alt=""
-          />
-          <span>
+    <main className="page simulation">
+      <header className="page-bar">
+        <Link href="/" className="brand">
+          <AstraMark className="brand-mark" />
+          <span className="brand-name">
             ASTRA <b>3D</b>
           </span>
         </Link>
-        <div className="simulation-status">
-          <span>
-            <i className="status-dot" /> Observation deck active
-          </span>
-          <b>FRAME / HELIOCENTRIC</b>
-        </div>
-        <Link href="/" className="back-link">
-          <ArrowLeft size={15} /> Exit to field brief
+        <p className="bar-note">
+          Everything below is computed in your browser. Nothing is uploaded.
+        </p>
+        <Link href="/" className="btn is-quiet">
+          <ArrowLeft size={15} /> Back to the story
         </Link>
       </header>
-      <div className="simulation-layout">
-        <aside className="simulation-rail">
-          <div className="rail-intro">
-            <p className="eyebrow">Live instrument</p>
+
+      <div className="tool">
+        <aside className="rail">
+          <div className="rail-head">
+            <p className="panel-eyebrow">Heliocentric reference frame</p>
             <h1>
-              Solar
+              The Solar System,
               <br />
-              <em>system</em>
+              <em>running on your clock.</em>
             </h1>
-            <p>Drag to orbit · scroll to zoom · click a body</p>
+            <p className="rail-help">
+              Drag to orbit the camera. Scroll to zoom. Click a body to read its
+              numbers.
+            </p>
           </div>
-          <div className="rail-section">
-            <p className="rail-label">Object register</p>
-            <div className="body-register">
+
+          <div className="rail-group">
+            <p className="rail-label">
+              Bodies <span>{bodies.length + moons.length}</span>
+            </p>
+            <div className="register">
               {bodies.map(body => (
                 <button
                   key={body.id}
-                  className={selectedId === body.id ? "is-selected" : ""}
-                  onClick={() => handleSelect(body.id)}
+                  type="button"
+                  className={`register-row ${selectedId === body.id ? "is-selected" : ""}`}
+                  onClick={() => selectBody(body.id)}
                 >
-                  <i style={{ background: body.accent }} />{" "}
+                  <i style={{ background: body.accent }} aria-hidden="true" />
                   <span>{body.name}</span>
                   <small>
                     {body.id === "sun"
-                      ? "★"
+                      ? "star"
                       : `${body.semiMajorAxisAU.toFixed(2)} AU`}
                   </small>
                 </button>
@@ -334,98 +604,80 @@ export default function Simulation() {
               {moons.map(moon => (
                 <button
                   key={moon.id}
-                  className={`moon-register ${selectedId === moon.id ? "is-selected" : ""}`}
-                  onClick={() => handleSelect(moon.id)}
+                  type="button"
+                  className={`register-row is-moon ${selectedId === moon.id ? "is-selected" : ""}`}
+                  onClick={() => selectBody(moon.id)}
                 >
-                  <i style={{ background: moon.accent }} />{" "}
-                  <span>↳ {moon.name}</span>
-                  <small>{bodyName(moon.parentId)}</small>
+                  <i style={{ background: moon.accent }} aria-hidden="true" />
+                  <span>{moon.name}</span>
+                  <small>{nameOf(moon.parentId)}</small>
                 </button>
               ))}
             </div>
           </div>
+
           <div className="rail-note">
-            <Info size={15} />
             <p>
-              <strong>Scale note</strong>Distances and sizes are stretched for a
-              readable screen model. Mission paths are idealized for learning,
-              not launch planning.
+              <strong>On the drawing</strong>
+              Spacing is log-stretched so Mercury and Neptune fit on one screen.
+              Measurements use the model's real positions, never the pixels.
             </p>
           </div>
         </aside>
-        <section className="simulation-main">
-          <div className="simulation-heading">
+
+        <section className="main">
+          <div className="main-head">
             <div>
-              <p className="eyebrow">01 · Primary instrument</p>
-              <h2>Orbital observation field</h2>
+              <p className="panel-eyebrow">Reference plane · heliocentric</p>
+              <h2>Kepler-inspired motion, live</h2>
             </div>
-            <div className="heading-actions">
-              <span className="live-readout">
-                <i className="status-dot" /> Live model
+            <div className="head-actions">
+              <span className="live">
+                <i aria-hidden="true" />{" "}
+                {isPlaying ? "Clock running" : "Clock paused"}
               </span>
               <button
                 type="button"
-                className="ask-astra-toggle"
+                className="btn is-primary is-small"
                 onClick={() => setGuideOpen(open => !open)}
                 aria-expanded={guideOpen}
                 aria-controls="astra-guide-panel"
               >
                 Ask ASTRA
               </button>
-              <button
-                className="mobile-panel-toggle"
-                onClick={() => setMobilePanelOpen(open => !open)}
-                aria-expanded={mobilePanelOpen}
-              >
-                Details
-              </button>
             </div>
           </div>
+
           <AstraGuide
             context={guideContext}
             open={guideOpen}
             onOpenChange={setGuideOpen}
+            onAsk={question => note("asked", `Asked ASTRA: “${question}”`)}
           />
-          <section className="mission-control" aria-labelledby="mission-control-title">
-            <div className="mission-control-topline">
-              <div>
-                <p className="eyebrow">Mission control · Flight desk</p>
-                <h3 id="mission-control-title"><Target size={17} /> Plan a flight</h3>
-              </div>
-              <span className={`mission-control-state ${mission ? "is-active" : ""}`}>
-                <i /> {mission ? missionProgress >= 100 ? "ARRIVED" : "IN FLIGHT" : "STANDBY"}
-              </span>
-            </div>
-            <div className="mission-control-controls">
-              <label>Departure
-                <select value={missionFrom} onChange={event => setMissionFrom(event.target.value)}>
-                  {bodies.filter(body => body.id !== "sun").map(body => <option key={body.id} value={body.id}>{body.name}</option>)}
-                  {moons.map(moon => <option key={moon.id} value={moon.id}>{moon.name}</option>)}
-                </select>
-              </label>
-              <span className="mission-route-arrow">→</span>
-              <label>Destination
-                <select value={missionTo} onChange={event => setMissionTo(event.target.value)}>
-                  {bodies.filter(body => body.id !== "sun").map(body => <option key={body.id} value={body.id}>{body.name}</option>)}
-                  {moons.map(moon => <option key={moon.id} value={moon.id}>{moon.name}</option>)}
-                </select>
-              </label>
-              <div className="mission-control-estimate">
-                <span>EST. FLIGHT</span>
-                <strong>~{getApproximateMissionDays(missionFrom, missionTo, bodies, moons).toLocaleString()} <small>days</small></strong>
-              </div>
-              <button className="mission-launch-button" onClick={mission ? () => setMission(null) : launchMission}>
-                {mission ? <><X size={15} /> End flight</> : <><Play size={15} fill="currentColor" /> Launch</>}
-              </button>
-            </div>
-            <div className="mission-control-progress">
-              <div className="mission-progress-track"><i style={{ width: `${mission ? missionProgress : 0}%` }} /></div>
-              <div className="mission-progress-caption">
-                {mission ? <><span>{bodyName(mission.from)} <b>→</b> {bodyName(mission.to)}</span><span>{missionProgress}% · {missionProgress >= 100 ? "Destination reached" : `${Math.max(0, Math.round(mission.travelDays - (simulatedDay - mission.launchedAt))).toLocaleString()} days remaining`}</span></> : <><span>Choose a route to prepare your spacecraft</span><span>Educational trajectory</span></>}
-              </div>
-            </div>
-          </section>
-          <div className="simulation-stage-wrap">
+
+          <FlightDesk
+            from={flightFrom}
+            to={flightTo}
+            onFromChange={setFlightFrom}
+            onToChange={setFlightTo}
+            options={flightOptions}
+            estimateDays={getApproximateMissionDays(
+              flightFrom,
+              flightTo,
+              bodies,
+              moons
+            )}
+            mission={mission}
+            simulatedDay={simulatedDay}
+            nameOf={nameOf}
+            onLaunch={launchMission}
+            onEnd={() => {
+              setMission(null);
+              setStatus("Flight ended. The model is back to planets only.");
+            }}
+          />
+
+          <section className="stage">
             <SolarSystemCanvas
               bodies={bodies}
               moons={moons}
@@ -437,76 +689,98 @@ export default function Simulation() {
               mission={mission}
               transfer={transfer}
               experiment={experiment}
-              onSelect={handleSelect}
+              onSelect={selectBody}
             />
-            <div className="stage-readout stage-readout-tl">
-              <span>SIM DATE</span>
-              <b>{formatter.format(simulatedDate)}</b>
+            <div className="stage-label is-top-left">
+              <span>Model date</span>
+              <b>{dateLabel}</b>
             </div>
-            <div className="stage-readout stage-readout-tr">
-              <span>TIME SPEED</span>
+            <div className="stage-label is-top-right">
+              <span>Clock speed</span>
               <b>{speedText(speed)}</b>
             </div>
-            <div className="stage-readout stage-readout-bl">
-              <span>
-                ASTRA TELEMETRY ·{" "}
-                {selectedMoon
-                  ? selectedMoon.name.toUpperCase()
-                  : selectedBody.name.toUpperCase()}
-              </span>
+            <div className="stage-label is-bottom-left">
+              <span>{selectedName}</span>
               <b>
                 {selectedMoon
-                  ? `${selectedMoon.orbitalPeriodDays} DAYS / ORBIT`
+                  ? `${selectedMoon.orbitalPeriodDays} days per orbit`
                   : `${selectedBody.orbitalVelocity} · e ${selectedBody.eccentricity.toFixed(3)}`}
               </b>
             </div>
-            <div className="stage-actions">
+            <div className="stage-tools">
               <button
+                type="button"
                 className={showOrbits ? "is-on" : ""}
                 onClick={() => setShowOrbits(value => !value)}
+                aria-pressed={showOrbits}
               >
-                ◌ Orbits
+                <span className="orbit-glyph" aria-hidden="true">
+                  <i />
+                </span>
+                Orbit lines
               </button>
               <button
+                type="button"
                 className={showVelocity ? "is-on" : ""}
                 onClick={() => setShowVelocity(value => !value)}
+                aria-pressed={showVelocity}
               >
-                <Zap size={14} /> Velocity
+                <Zap size={13} /> Velocity arrows
               </button>
-              <button onClick={() => setCameraTargetId(selectedId)}>
-                <Target size={14} /> Focus
+              <button
+                type="button"
+                onClick={() => setCameraTargetId(selectedId)}
+              >
+                <Target size={13} /> Focus on {selectedName}
               </button>
             </div>
-          </div>
-          <div className="time-console">
-            <div className="time-console-main">
+          </section>
+
+          {hint && (
+            <aside className="hint" role="note">
+              <p>{hint.text}</p>
               <button
-                className="console-button primary"
+                type="button"
+                onClick={() => dismissHint(hint.id)}
+                aria-label="Stop showing this hint"
+              >
+                <X size={14} />
+              </button>
+            </aside>
+          )}
+
+          <div className="console">
+            <div className="console-main">
+              <button
+                type="button"
+                className="icon-btn is-primary"
                 onClick={() => setIsPlaying(playing => !playing)}
-                aria-label={isPlaying ? "Pause simulation" : "Play simulation"}
+                aria-label={isPlaying ? "Pause the clock" : "Start the clock"}
               >
                 {isPlaying ? <Pause size={17} /> : <Play size={17} />}
               </button>
               <button
-                className="console-button"
-                onClick={reset}
-                aria-label="Reset simulation"
+                type="button"
+                className="icon-btn"
+                onClick={resetView}
+                aria-label="Reset the view"
               >
                 <RotateCcw size={16} />
               </button>
-              <div className="console-date">
+              <div className="clock">
                 <span>
-                  <CalendarDays size={14} /> Simulated date
+                  <CalendarDays size={13} /> Model date
                 </span>
-                <strong>{formatter.format(simulatedDate)}</strong>
+                <strong>{dateLabel}</strong>
               </div>
             </div>
-            <div className="speed-control">
-              <span className="console-label">TIME SPEED</span>
+            <div className="speeds">
+              <span className="console-label">Clock speed</span>
               <div>
                 {SPEEDS.map((option, index) => (
                   <button
                     key={option}
+                    type="button"
                     className={speedIndex === index ? "is-selected" : ""}
                     onClick={() => setSpeedIndex(index)}
                   >
@@ -515,8 +789,8 @@ export default function Simulation() {
                 ))}
               </div>
             </div>
-            <label className="date-jump">
-              <span>Jump to date</span>
+            <label className="field is-right">
+              <span>Jump to a date</span>
               <input
                 type="date"
                 value={dateInput}
@@ -525,44 +799,59 @@ export default function Simulation() {
                 onChange={event => {
                   setDateInput(event.target.value);
                   setSimulatedDay(getDayFromDate(event.target.value));
+                  note(
+                    "clock",
+                    `Jumped the clock to ${formatter.format(
+                      getSimulatedDate(getDayFromDate(event.target.value))
+                    )}.`
+                  );
                 }}
               />
             </label>
           </div>
-          <div className="sim-bottom-grid">
-            <section className="measurement-card">
-              <header>
+
+          <div className="panels">
+            <section className="panel" aria-labelledby="measure-title">
+              <header className="panel-head">
                 <div>
-                  <p className="eyebrow">02 · Distance measurement</p>
-                  <h3>
-                    <Ruler size={17} /> Measure between worlds
-                  </h3>
+                  <p className="panel-eyebrow">Measure</p>
+                  <h2 id="measure-title">
+                    <Ruler size={15} aria-hidden="true" /> The gap between two
+                    worlds
+                  </h2>
                 </div>
-                <button
-                  onClick={() => setMeasurementPair([])}
-                  aria-label="Clear measurement"
-                >
-                  <X size={15} />
-                </button>
+                {measurementPair.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn is-quiet is-small"
+                    onClick={() => setMeasurementPair([])}
+                  >
+                    Clear
+                  </button>
+                )}
               </header>
-              <p className="measurement-route">
+              <p className="panel-note">
                 {measurementPair.length === 2
-                  ? `${bodyName(measurementPair[0])} → ${bodyName(measurementPair[1])}`
-                  : "Select two objects"}
+                  ? `${nameOf(measurementPair[0])} → ${nameOf(measurementPair[1])}`
+                  : measurementPair.length === 1
+                    ? `${nameOf(measurementPair[0])} selected — add one more.`
+                    : "Pick two bodies. The reading follows them as the clock runs."}
               </p>
               {measurementDistance !== null ? (
-                <strong className="measurement-value">
+                <p className="reading">
                   {formatCompactDistance(measurementDistance)}
-                </strong>
+                </p>
               ) : (
-                <span className="measurement-empty">
-                  Uses the current inclined 3D positions from the orbital model.
-                </span>
+                <p className="empty">
+                  Measured from the current inclined positions, so it changes as
+                  the worlds move.
+                </p>
               )}
-              <div className="measurement-picker">
+              <div className="pick">
                 {bodies.slice(0, 6).map(body => (
                   <button
                     key={body.id}
+                    type="button"
                     className={
                       measurementPair.includes(body.id) ? "is-selected" : ""
                     }
@@ -574,6 +863,7 @@ export default function Simulation() {
                 {moons.slice(0, 2).map(moon => (
                   <button
                     key={moon.id}
+                    type="button"
                     className={
                       measurementPair.includes(moon.id) ? "is-selected" : ""
                     }
@@ -584,224 +874,147 @@ export default function Simulation() {
                 ))}
               </div>
             </section>
-            <section
-              className={`object-card ${mobilePanelOpen ? "is-open" : ""}`}
-            >
-              <header>
+
+            <section className="panel" aria-labelledby="telemetry-title">
+              <header className="panel-head">
                 <div>
-                  <p className="eyebrow">03 · Live telemetry</p>
-                  <span className="record-id">
-                    ASTRA TELEMETRY / {selectedId.toUpperCase()}
-                  </span>
+                  <p className="panel-eyebrow">Selected body</p>
+                  <h2 id="telemetry-title">
+                    <Crosshair size={15} aria-hidden="true" /> {selectedName}
+                  </h2>
                 </div>
                 <button
-                  className="focus-object"
+                  type="button"
+                  className="btn is-quiet is-small"
                   onClick={() => setCameraTargetId(selectedId)}
                 >
-                  <Crosshair size={15} /> Focus
+                  Focus
                 </button>
               </header>
-              <div className="object-title">
-                <div
-                  className="object-emblem"
+              <p className="object-line">
+                <span
+                  className="emblem"
                   style={
                     {
-                      "--emblem-color":
-                        selectedMoon?.accent ?? selectedBody.accent,
+                      "--emblem": selectedMoon?.accent ?? selectedBody.accent,
                     } as React.CSSProperties
                   }
+                  aria-hidden="true"
                 >
                   {selectedMoon?.symbol ?? selectedBody.symbol}
-                </div>
-                <div>
-                  <p className="eyebrow">Selected object</p>
-                  <h3>{selectedMoon?.name ?? selectedBody.name}</h3>
-                  <span>
-                    {selectedMoon ? "Major satellite" : selectedBody.category}
-                  </span>
-                </div>
-              </div>
-              <p className="object-description">
+                </span>
+                {selectedMoon ? "Major moon" : selectedBody.category}
+              </p>
+              <p className="panel-note">
                 {selectedMoon?.description ?? selectedBody.description}
               </p>
-              <dl className="object-readings">
+              <dl className="stats">
                 {selectedReadings.map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
                     <dd>{value}</dd>
                   </div>
                 ))}
-                <div>
-                  <dt>Simulation date</dt>
-                  <dd>{dateInput}</dd>
-                </div>
-                <div>
-                  <dt>Time speed</dt>
-                  <dd>{speedText(speed)}</dd>
-                </div>
               </dl>
-              <div className="fact-note">
-                <Sparkles size={15} />
-                <p>
-                  <strong>Field note</strong>
-                  {selectedMoon?.fact ?? selectedBody.fact}
-                </p>
-              </div>
-            </section>
-          </div>
-          <section className="feature-grid">
-            <section className="feature-card transfer-card">
-              <header>
-                <div>
-                  <p className="eyebrow">05 · Transfer geometry</p>
-                  <h3>
-                    <Gauge size={16} /> Hohmann transfer
-                  </h3>
-                </div>
-                <span className="inline-status">
-                  {transfer ? "VISIBLE" : "IDEALIZED"}
-                </span>
-              </header>
-              <p className="feature-note">
-                An efficient idealized transfer between approximately coplanar
-                circular orbits. ASTRA shows the geometry, not a launch-window
-                prediction.
+              <p className="fact">
+                <strong>Worth knowing</strong>
+                {selectedMoon?.fact ?? selectedBody.fact}
               </p>
-              <div className="transfer-metric">
-                <strong>
-                  ~
-                  {getApproximateMissionDays(
-                    missionFrom,
-                    missionTo,
-                    bodies,
-                    moons
-                  )}{" "}
-                  DAYS
-                </strong>
-                <span>
-                  {bodyName(missionFrom)} → {bodyName(missionTo)}
-                </span>
-              </div>
-              <div className="button-row">
-                <button className="primary-small" onClick={makeTransfer}>
-                  SHOW TRANSFER
-                </button>
-                <button onClick={() => setTransfer(null)}>CLEAR</button>
-              </div>
             </section>
-            <section className="feature-card experiment-card">
-              <header>
+
+            <div className="span-2">
+              <Notebook
+                entries={entries}
+                onClear={() => {
+                  clearNotebook();
+                  setEntries([]);
+                  setStatus("Notebook cleared. A fresh page.");
+                }}
+              />
+            </div>
+
+            <AmberTools
+              experiment={experiment}
+              onExperimentChange={setExperiment}
+              transfer={transfer}
+              transferDays={getApproximateMissionDays(
+                transfer?.from ?? flightFrom,
+                transfer?.to ?? flightTo,
+                bodies,
+                moons
+              )}
+              routeLabel={`${nameOf(transfer?.from ?? flightFrom)} → ${nameOf(
+                transfer?.to ?? flightTo
+              )}`}
+              onDrawTransfer={drawTransfer}
+              onClearTransfer={() => {
+                setTransfer(null);
+                setStatus(
+                  "Transfer cleared. The field is back to the real orbits."
+                );
+              }}
+            />
+
+            <section className="panel" aria-labelledby="runs-title">
+              <header className="panel-head">
                 <div>
-                  <p className="eyebrow">06 · Orbit experiment</p>
-                  <h3>Change the orbit</h3>
+                  <p className="panel-eyebrow">Saved runs</p>
+                  <h2 id="runs-title">Come back to a configuration</h2>
                 </div>
                 <button
-                  onClick={() =>
-                    setExperiment({
-                      semiMajorAxisAU: 1,
-                      eccentricity: 0.2,
-                      inclination: 8,
-                      active: false,
-                    })
-                  }
+                  type="button"
+                  className="btn is-small"
+                  onClick={saveRun}
                 >
-                  <RotateCcw size={14} /> Reset
+                  Save this one
                 </button>
               </header>
-              {(
-                [
-                  ["semiMajorAxisAU", "Semi-major axis", 0.4, 2.4, 0.1, " AU"],
-                  ["eccentricity", "Eccentricity", 0, 0.8, 0.01, ""],
-                  ["inclination", "Inclination", 0, 30, 1, "°"],
-                ] as const
-              ).map(([key, label, min, max, step, unit]) => (
-                <label className="slider-row" key={key}>
-                  <span>
-                    {label}
-                    <b>
-                      {experiment[key].toFixed(key === "eccentricity" ? 2 : 1)}
-                      {unit}
-                    </b>
-                  </span>
-                  <input
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={experiment[key]}
-                    onChange={event =>
-                      setExperiment({
-                        ...experiment,
-                        [key]: Number(event.target.value),
-                        active: true,
-                      })
-                    }
-                  />
-                </label>
-              ))}
-              <p className="feature-note">
-                {experiment.eccentricity > 0.45
-                  ? "Higher eccentricity makes the orbit more elongated."
-                  : "Small eccentricity values keep the orbit closer to a circle."}
-              </p>
-            </section>
-            <section className="feature-card scenario-card">
-              <header>
-                <div>
-                  <p className="eyebrow">07 · Mission scenarios</p>
-                  <h3>
-                    <Save size={16} /> Save locally
-                  </h3>
-                </div>
-                <button onClick={saveScenario}>SAVE SCENARIO</button>
-              </header>
-              {scenarios.length ? (
-                scenarios.map(scenario => (
-                  <div className="scenario-row" key={scenario.name}>
-                    <span>{scenario.name}</span>
-                    <button onClick={() => loadScenario(scenario)}>LOAD</button>
-                    <button
-                      onClick={() => deleteScenario(scenario.name)}
-                      aria-label={`Delete ${scenario.name}`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p className="feature-note">
-                  Save your current mission, date, speed, and experiment in this
-                  browser only.
+              {runs.length === 0 ? (
+                <p className="empty">
+                  Nothing saved yet. A saved run keeps the date, the clock
+                  speed, the flight, and the experiment, so you can restart a
+                  demonstration without rebuilding it.
                 </p>
+              ) : (
+                <ul className="runs">
+                  {runs.map(run => (
+                    <li key={run.name}>
+                      <button
+                        type="button"
+                        className="linkish"
+                        onClick={() => loadRun(run)}
+                      >
+                        {run.name}
+                      </button>
+                      <span>
+                        {formatter.format(getSimulatedDate(run.simulatedDay))}
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-btn is-tiny"
+                        onClick={() => deleteRun(run.name)}
+                        aria-label={`Delete ${run.name}`}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
+              <footer className="panel-foot">
+                {storageWorks
+                  ? "Kept in this browser. No account, no server, nothing to sign into."
+                  : "This browser is blocking local storage, so saving won't work here."}
+              </footer>
             </section>
-          </section>
-          <section className="tutorial-panel">
-            <div>
-              <p className="eyebrow">
-                Optional field tutorial · {tutorialStep + 1}/7
-              </p>
-              <h3>{tutorialLabels[tutorialStep]}</h3>
-              <p>
-                ASTRA is a small model you can explain: observe a position,
-                change one variable, and compare the result.
-              </p>
-            </div>
-            <div className="button-row">
-              <button
-                onClick={() => setTutorialStep(step => Math.min(6, step + 1))}
-              >
-                {tutorialStep === 6 ? "FINISH TUTORIAL" : "NEXT STEP"}
-              </button>
-              <button onClick={() => setTutorialStep(6)}>SKIP TUTORIAL</button>
-              <button onClick={() => setTutorialStep(0)}>RESTART</button>
-            </div>
-          </section>
-          <div className="system-status" role="status">
+          </div>
+
+          <div className="statusbar" role="status">
+            <span>{status}</span>
             <span>
-              <i className="status-dot" /> {status}
+              Educational model: Kepler-inspired orbits, no N-body physics, no
+              launch windows.
             </span>
-            <span>Educational approximation · no full N-body physics</span>
           </div>
         </section>
       </div>

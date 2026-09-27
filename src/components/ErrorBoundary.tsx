@@ -1,61 +1,50 @@
-import { cn } from "@/lib/utils";
-import { AlertTriangle, RotateCcw } from "lucide-react";
-import { Component, ReactNode } from "react";
+import { Component, type ReactNode } from "react";
+import { AstraMark } from "@/components/AstraMark";
 
-interface Props {
-  children: ReactNode;
-}
+type Props = { children: ReactNode };
+type State = { error: Error | null };
 
-interface State {
-  hasError: boolean;
-  error: Error | null;
-}
-
+/**
+ * Failures get shown, not smoothed over: the real message is on screen because
+ * hiding it would make this harder to fix, not easier to look at.
+ */
 class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+  state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { error };
   }
 
   render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex items-center justify-center min-h-screen p-8 bg-background">
-          <div className="flex flex-col items-center w-full max-w-2xl p-8">
-            <AlertTriangle
-              size={48}
-              className="text-destructive mb-6 flex-shrink-0"
-            />
+    const { error } = this.state;
+    if (!error) return this.props.children;
 
-            <h2 className="text-xl mb-4">An unexpected error occurred.</h2>
-
-            <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
-              <pre className="text-sm text-muted-foreground whitespace-break-spaces">
-                {this.state.error?.stack}
-              </pre>
-            </div>
-
+    return (
+      <div className="page failure">
+        <div className="failure-card">
+          <AstraMark size={30} />
+          <h1>Something broke while drawing the model.</h1>
+          <p>
+            This is a bug, not a designed state. Nothing you have saved is lost
+            — the notebook and saved runs live in this browser, not in memory.
+            Reloading usually clears it.
+          </p>
+          <pre>{error.stack ?? error.message}</pre>
+          <div className="failure-actions">
             <button
+              type="button"
+              className="btn is-primary"
               onClick={() => window.location.reload()}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg",
-                "bg-primary text-primary-foreground",
-                "hover:opacity-90 cursor-pointer"
-              )}
             >
-              <RotateCcw size={16} />
-              Reload Page
+              Reload ASTRA
             </button>
+            <a className="btn" href="./">
+              Back to the story
+            </a>
           </div>
         </div>
-      );
-    }
-
-    return this.props.children;
+      </div>
+    );
   }
 }
 

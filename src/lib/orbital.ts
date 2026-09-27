@@ -83,13 +83,6 @@ export function getOrbitalPosition(
   };
 }
 
-/** Distance from the actual current 3D positions, not circular placeholders. */
-export function getDistanceKm(first: Body, second: Body, simulatedDay: number) {
-  const a = getOrbitalPositionAU(first, simulatedDay);
-  const b = getOrbitalPositionAU(second, simulatedDay);
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * ASTRONOMICAL_UNIT_KM;
-}
-
 export function getSimulatedDate(simulatedDay: number) {
   return new Date(SIMULATION_EPOCH.getTime() + simulatedDay * 86_400_000);
 }
@@ -119,10 +112,6 @@ export function getHohmannTransferDays(departure: Body, destination: Body) {
   );
   const transferPeriodYears = Math.sqrt(((inner + outer) / 2) ** 3);
   return Math.round(182.62 * transferPeriodYears);
-}
-
-export function getTransferSemiMajorAxis(departure: Body, destination: Body) {
-  return (departure.semiMajorAxisAU + destination.semiMajorAxisAU) / 2;
 }
 
 export function formatCompactDistance(distanceKm: number) {

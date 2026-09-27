@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
-import { ArrowDownRight, ArrowRight, CircleDot, Orbit, Play, ScanLine, TimerReset } from "lucide-react";
+import { ArrowDownRight, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
+import { AstraMark } from "@/components/AstraMark";
+import { OrbitDiagram } from "@/components/OrbitDiagram";
+import { bodies, getBody } from "@/data/bodies";
+import { moons } from "@/data/moons";
 
-const heroAsset = "/manus-storage/astra-orbital-observatory-hero_d39490e6.jpg";
+const mars = getBody("mars");
+const venus = getBody("venus");
+
+/** Both orbits share one scale, so their sizes can be compared honestly. */
+function orbitPath(semiMajorAxisAU: number, eccentricity: number) {
+  const a = semiMajorAxisAU * (62 / mars.semiMajorAxisAU);
+  return Array.from({ length: 97 }, (_, step) => {
+    const angle = (step / 96) * Math.PI * 2;
+    const radius =
+      (a * (1 - eccentricity ** 2)) / (1 + eccentricity * Math.cos(angle));
+    return `${radius * Math.cos(angle)},${radius * Math.sin(angle)}`;
+  }).join(" ");
+}
 
 type RevealProps = {
   children: React.ReactNode;
@@ -16,108 +32,299 @@ function Reveal({ children, className = "", delay = 0 }: RevealProps) {
 
   useEffect(() => {
     if (!node) return undefined;
-    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: 0.18 });
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(entry.isIntersecting),
+      { threshold: 0.15 }
+    );
     observer.observe(node);
     return () => observer.disconnect();
   }, [node]);
 
   return (
-    <div ref={setNode} className={`reveal ${visible ? "is-visible" : ""} ${className}`} style={{ "--reveal-delay": `${delay}ms` } as React.CSSProperties}>
+    <div
+      ref={setNode}
+      className={`reveal ${visible ? "is-visible" : ""} ${className}`}
+      style={{ "--reveal-delay": `${delay}ms` } as React.CSSProperties}
+    >
       {children}
     </div>
   );
 }
+
+const method = [
+  {
+    title: "Positions come from Kepler's equation",
+    body: "Each planet's phase advances on its own orbital period, then a six-step Newton–Raphson iteration solves for where it sits on an inclined ellipse. No keyframes, no hand-placed dots.",
+  },
+  {
+    title: "Time is the one variable you always control",
+    body: "The clock runs from 1× to 100,000×. At 1,000× a real second covers about 1,000 simulated days, which is long enough to watch Mercury lap the Sun while Jupiter barely shifts.",
+  },
+  {
+    title: "Distances are measured, not eyeballed",
+    body: "Pick two worlds and ASTRA measures the gap between their current three-dimensional positions in kilometres. Stretched spacing in the picture never leaks into the numbers.",
+  },
+  {
+    title: "ASTRA Guide reads the model, not the internet",
+    body: "It answers from the selected body, the current date, and your live measurement. Fixed topics, no invented figures, and it says so when it does not know.",
+  },
+];
+
+const rough = [
+  "Planets are shaded spheres, not textured ones. Surfaces are a later job.",
+  "Moon orbits are drawn at a readable size, not a true one.",
+  "Flight times ignore launch windows, gravity assists, and everything that makes real mission planning hard.",
+  "Guide answers come from a fixed set of reviewed topics, not a language model.",
+];
 
 export default function Landing() {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
     const onScroll = () => {
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      setScrollProgress(maxScroll > 0 ? Math.min(1, window.scrollY / maxScroll) : 0);
+      const maxScroll =
+        document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(
+        maxScroll > 0 ? Math.min(1, window.scrollY / maxScroll) : 0
+      );
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const scrollToSection = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  const scrollToSection = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
 
   return (
-    <main className="landing-page" style={{ "--scroll-progress": scrollProgress } as React.CSSProperties}>
-      <div className="landing-noise" aria-hidden="true" />
-      <header className="landing-nav">
-        <Link href="/" className="landing-brand" aria-label="ASTRA 3D home">
-          <img src="/manus-storage/astra-split-orbit-mark_fd8718c3.png" alt="" />
-          <span>ASTRA <b>3D</b></span>
+    <main
+      className="page landing"
+      style={{ "--scroll-progress": scrollProgress } as React.CSSProperties}
+    >
+      <header className="page-bar landing-bar">
+        <Link href="/" className="brand" aria-label="ASTRA 3D home">
+          <AstraMark className="brand-mark" />
+          <span className="brand-name">
+            ASTRA <b>3D</b>
+          </span>
         </Link>
-        <nav aria-label="Landing page navigation">
-          <button onClick={() => scrollToSection("method")}>Method</button>
-          <button onClick={() => scrollToSection("signals")}>Signals</button>
-          <Link href="/simulate" className="nav-launch">Launch simulation <ArrowRight size={14} /></Link>
+        <nav className="nav-links" aria-label="Page sections">
+          <button
+            className="nav-link"
+            onClick={() => scrollToSection("method")}
+          >
+            How it works
+          </button>
+          <button className="nav-link" onClick={() => scrollToSection("rough")}>
+            What's rough
+          </button>
+          <Link href="/simulate" className="btn is-primary">
+            Open the model <ArrowRight size={14} />
+          </Link>
         </nav>
       </header>
 
-      <section className="landing-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(3, 10, 21, 0.98) 0%, rgba(3, 10, 21, 0.85) 43%, rgba(3, 10, 21, 0.25) 100%), url(${heroAsset})` }}>
-        <div className="hero-grid" aria-hidden="true" />
+      <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">ASTRA 3D / ORBITAL FIELD STATION</p>
-          <h1>Explore.<br /><em>Simulate.</em><br />Understand.</h1>
-          <p className="hero-lede">A student-built Solar System you can read as a living system—follow orbital motion, test time, and see the geometry behind the textbook diagrams.</p>
+          <p className="eyebrow">Class 12 space-science project</p>
+          <h1>
+            Not a picture of the
+            <br />
+            Solar System.
+            <br />
+            <em>A model of it.</em>
+          </h1>
+          <p className="lede">
+            ASTRA runs a Kepler-inspired orbital model in your browser. Set a
+            date, change the speed, click any world, and read the numbers behind
+            what you're seeing. It was built for one school demonstration, so
+            every part of it can be explained out loud.
+          </p>
           <div className="hero-actions">
-            <Link href="/simulate" className="primary-action"><Play size={16} fill="currentColor" /> Enter ASTRA</Link>
-            <button className="text-action" onClick={() => scrollToSection("method")}>Read the field brief <ArrowDownRight size={16} /></button>
+            <Link href="/simulate" className="btn is-primary">
+              Open the model <ArrowRight size={15} />
+            </Link>
+            <button
+              className="btn is-quiet"
+              onClick={() => scrollToSection("method")}
+            >
+              How the maths works <ArrowDownRight size={15} />
+            </button>
           </div>
-          <div className="hero-meta"><span><i className="status-dot" /> Model online</span><span>8 planetary records</span><span>Kepler-inspired propagation</span></div>
+          <dl className="hero-meta">
+            <div>
+              <dt>Worlds</dt>
+              <dd>
+                {bodies.length - 1} planets, {moons.length} moons
+              </dd>
+            </div>
+            <div>
+              <dt>Solver</dt>
+              <dd>Kepler + Newton–Raphson</dd>
+            </div>
+            <div>
+              <dt>Data</dt>
+              <dd>Stays in your browser</dd>
+            </div>
+          </dl>
         </div>
-        <div className="hero-instrument" aria-label="Illustrative orbital geometry">
-          <div className="instrument-axis axis-x" /><div className="instrument-axis axis-y" />
-          <div className="landing-orbit orbit-a" /><div className="landing-orbit orbit-b" /><div className="landing-orbit orbit-c" />
-          <div className="landing-sun"><span>☉</span></div>
-          <div className="landing-planet planet-earth"><span>⊕</span></div>
-          <div className="landing-planet planet-mars"><span>♂</span></div>
-          <div className="instrument-label label-top">REFERENCE FRAME / HELIOCENTRIC</div>
-          <div className="instrument-label label-bottom">DISTANCES VISUALIZED · NOT TO SCALE</div>
-        </div>
-        <div className="hero-scroll-cue"><span>Scroll to calibrate</span><i /></div>
+
+        <figure className="hero-visual">
+          <OrbitDiagram className="hero-diagram" day={0} />
+          <figcaption className="hero-caption">
+            <span>Top-down, at the model's epoch — 1 Jan 2025</span>
+            <span>Spacing log-stretched so Neptune stays on screen</span>
+          </figcaption>
+        </figure>
       </section>
 
-      <section className="landing-section intro-section" id="method">
-        <Reveal className="section-heading">
-          <p className="eyebrow">01 · The field station</p>
-          <h2>Not a poster of planets.<br /><em>A system you can question.</em></h2>
+      <section className="section" id="method">
+        <Reveal className="section-head">
+          <p className="eyebrow">01 · How it works</p>
+          <h2>
+            Small enough to explain.
+            <br />
+            <em>Honest about the rest.</em>
+          </h2>
         </Reveal>
-        <Reveal className="intro-grid" delay={80}>
-          <p className="section-lede">ASTRA 3D turns the Solar System into a calm, explorable instrument. The display stretches distances for legibility, while the underlying relationships stay anchored to published planetary parameters.</p>
-          <div className="principle-list">
-            <article><span>01</span><div><strong>Observe</strong><p>Select a world and read the numbers behind its appearance.</p></div></article>
-            <article><span>02</span><div><strong>Accelerate</strong><p>Move from days to decades with a clock that stays visible.</p></div></article>
-            <article><span>03</span><div><strong>Make sense</strong><p>See eccentricity, inclination, and velocity as motion—not jargon.</p></div></article>
+        <Reveal className="section-body split" delay={60}>
+          <p className="lede">
+            There is no black box in here. Four pieces of ordinary maths and one
+            dataset of published planetary parameters carry the whole thing —
+            and the places where the model gives up are written down instead of
+            hidden.
+          </p>
+          <ol className="method-list">
+            {method.map((item, index) => (
+              <li key={item.title}>
+                <span aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <h3>{item.title}</h3>
+                  <p>{item.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Reveal>
+      </section>
+
+      <section className="section" id="inside">
+        <Reveal className="section-head">
+          <p className="eyebrow">02 · What's inside</p>
+          <h2>
+            Things you can do
+            <br />
+            <em>in the first five minutes.</em>
+          </h2>
+        </Reveal>
+        <Reveal className="cards" delay={80}>
+          <article className="card card-wide">
+            <h3>See eccentricity instead of reading it</h3>
+            <p>
+              A planet's orbit is drawn from its real semi-major axis and
+              eccentricity, tilted by its inclination. Mars runs an eccentricity
+              of {mars.eccentricity.toFixed(3)}, Venus just{" "}
+              {venus.eccentricity.toFixed(3)} — the difference is visible in the
+              shape of the path long before you look at the number.
+            </p>
+            <svg
+              className="card-sketch"
+              viewBox="-74 -74 148 148"
+              aria-hidden="true"
+            >
+              {[mars, venus].map(body => (
+                <polygon
+                  key={body.id}
+                  points={orbitPath(body.semiMajorAxisAU, body.eccentricity)}
+                  fill="none"
+                  stroke={body.accent}
+                  strokeWidth="1.1"
+                  opacity={body.id === "venus" ? 0.7 : 0.85}
+                />
+              ))}
+              <circle cx="0" cy="0" r="3.6" fill="#f0a343" />
+            </svg>
+            <span className="card-foot">
+              Venus and Mars at true relative distance — the Sun sits off-centre
+              in the outer one
+            </span>
+          </article>
+          <article className="card">
+            <h3>Plan a rough transfer</h3>
+            <p>
+              Choose a departure and a destination and ASTRA draws an idealized
+              Hohmann ellipse with an approximate flight time. Useful for
+              teaching the geometry. Not a launch window.
+            </p>
+          </article>
+          <article className="card">
+            <h3>Ask about what you're looking at</h3>
+            <p>
+              The Guide answers using the body you have selected, the simulated
+              date, and your current measurement — so "why is this one faster?"
+              means something specific.
+            </p>
+          </article>
+        </Reveal>
+      </section>
+
+      <section className="section" id="rough">
+        <Reveal className="panel-pair">
+          <div className="section-lead">
+            <p className="eyebrow">03 · What's still rough</p>
+            <h2>Known gaps, kept in plain sight.</h2>
+            <p className="lede">
+              A model that hides its assumptions teaches the wrong lesson. These
+              are the shortcuts ASTRA takes, written the same way I wrote them
+              in the viva notes.
+            </p>
+          </div>
+          <ul className="honest-list">
+            {rough.map(item => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </Reveal>
+      </section>
+
+      <section className="section">
+        <Reveal className="cta">
+          <div>
+            <p className="eyebrow">04 · Try it</p>
+            <h2>
+              Set a date.
+              <br />
+              <em>Then move the universe.</em>
+            </h2>
+          </div>
+          <div className="cta-side">
+            <p>
+              Drag to orbit the camera, scroll to zoom, click a world to read
+              it. Everything saves locally, nothing is uploaded, and no account
+              is involved.
+            </p>
+            <Link href="/simulate" className="btn is-primary">
+              Open the model <ArrowRight size={15} />
+            </Link>
           </div>
         </Reveal>
       </section>
 
-      <section className="landing-section signal-section" id="signals">
-        <Reveal className="signal-copy">
-          <p className="eyebrow">02 · Three live readouts</p>
-          <h2>Every control earns<br /><em>its place in the story.</em></h2>
-          <p>There is no black-box “AI” layer hiding the science. The model stays small enough to explain in a Class 12 viva and rich enough to make orbital mechanics visible.</p>
-        </Reveal>
-        <Reveal className="signal-cards" delay={120}>
-          <article className="signal-card signal-card-wide"><div className="card-icon"><Orbit size={19} /></div><p className="eyebrow">Orbital geometry</p><h3>Kepler's laws,<br />in motion.</h3><div className="mini-orbit"><i /><i /><b /></div><span>Mean anomaly + eccentricity</span></article>
-          <article className="signal-card"><div className="card-icon"><TimerReset size={19} /></div><p className="eyebrow">Simulation clock</p><strong>1,000×</strong><span>One real second = 1,000 simulated days.</span></article>
-          <article className="signal-card"><div className="card-icon"><ScanLine size={19} /></div><p className="eyebrow">Field measure</p><strong>AU / km</strong><span>Compare two bodies as they move.</span></article>
-        </Reveal>
-      </section>
-
-      <section className="landing-section cta-section">
-        <Reveal className="cta-panel">
-          <div><p className="eyebrow">03 · Enter the instrument</p><h2>Set a reference.<br /><em>Then move the universe.</em></h2></div>
-          <div className="cta-side"><p>Drag the camera. Select Earth. Turn the vectors on. ASTRA is ready when you are.</p><Link href="/simulate" className="primary-action">Launch ASTRA 3D <ArrowRight size={16} /></Link></div>
-        </Reveal>
-      </section>
-
-      <footer className="landing-footer"><span>ASTRA 3D / STUDENT SPACE-SCIENCE PLATFORM</span><span>BUILT WITH REACT + THREE.JS</span><span><CircleDot size={12} /> SYSTEM NOMINAL</span></footer>
+      <footer className="page-foot">
+        <span>
+          ASTRA 3D — built by a student, still being worked on. React, Three.js,
+          no backend.
+        </span>
+        <a
+          href="https://github.com/sid95-44/ASTRA-3D"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Source on GitHub
+        </a>
+      </footer>
     </main>
   );
 }

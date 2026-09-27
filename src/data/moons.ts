@@ -104,6 +104,7 @@ export const moons: Moon[] = [
     visualRadius: 0.095,
   },
 ];
-export function getMoon(id: string): Moon {
-  return moons.find(moon => moon.id === id) ?? moons[0];
+/** Returns nothing when the id is a planet, so callers can tell the two apart. */
+export function getMoon(id: string): Moon | undefined {
+  return moons.find(moon => moon.id === id);
 }
