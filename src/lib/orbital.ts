@@ -2,6 +2,9 @@ import type { Body } from "@/data/bodies";
 
 export const ASTRONOMICAL_UNIT_KM = 149_597_870.7;
 export const SIMULATION_EPOCH = new Date("2025-01-01T00:00:00Z");
+const HALF_YEAR_DAYS = 182.62;
+const MILLISECONDS_PER_DAY = 86_400_000;
+const KEPLER_ITERATIONS = 6;
 
 export type Vector3Like = { x: number; y: number; z: number };
 
@@ -11,7 +14,7 @@ export function solveEccentricAnomaly(
   eccentricity: number
 ) {
   let eccentricAnomaly = meanAnomaly;
-  for (let iteration = 0; iteration < 6; iteration += 1) {
+  for (let iteration = 0; iteration < KEPLER_ITERATIONS; iteration += 1) {
     eccentricAnomaly -=
       (eccentricAnomaly -
         eccentricity * Math.sin(eccentricAnomaly) -
@@ -38,12 +41,11 @@ export function getOrbitalAngle(body: Body, simulatedDay: number) {
   );
 }
 
-function getRadiusAU(body: Body, simulatedDay: number) {
+function getRadiusAU(body: Body, trueAnomaly: number) {
   if (body.id === "sun") return 0;
-  const angle = getOrbitalAngle(body, simulatedDay);
   return (
     (body.semiMajorAxisAU * (1 - body.eccentricity ** 2)) /
-    (1 + body.eccentricity * Math.cos(angle))
+    (1 + body.eccentricity * Math.cos(trueAnomaly))
   );
 }
 
@@ -54,7 +56,7 @@ export function getOrbitalPositionAU(
 ): Vector3Like {
   if (body.id === "sun") return { x: 0, y: 0, z: 0 };
   const angle = getOrbitalAngle(body, simulatedDay);
-  const radius = getRadiusAU(body, simulatedDay);
+  const radius = getRadiusAU(body, angle);
   const inclination = (body.inclination * Math.PI) / 180;
   return {
     x: radius * Math.cos(angle),
@@ -84,14 +86,16 @@ export function getOrbitalPosition(
 }
 
 export function getSimulatedDate(simulatedDay: number) {
-  return new Date(SIMULATION_EPOCH.getTime() + simulatedDay * 86_400_000);
+  return new Date(
+    SIMULATION_EPOCH.getTime() + simulatedDay * MILLISECONDS_PER_DAY
+  );
 }
 
 export function getDayFromDate(dateValue: string) {
   const date = new Date(`${dateValue}T00:00:00Z`);
   return Number.isNaN(date.getTime())
     ? 0
-    : (date.getTime() - SIMULATION_EPOCH.getTime()) / 86_400_000;
+    : (date.getTime() - SIMULATION_EPOCH.getTime()) / MILLISECONDS_PER_DAY;
 }
 
 /** Idealized Hohmann transfer time between two circular orbits. */
@@ -110,8 +114,8 @@ export function getHohmannTransferDays(departure: Body, destination: Body) {
     departure.semiMajorAxisAU,
     destination.semiMajorAxisAU
   );
-  const transferPeriodYears = Math.sqrt(((inner + outer) / 2) ** 3);
-  return Math.round(182.62 * transferPeriodYears);
+  const transferPeriodInYears = Math.sqrt(((inner + outer) / 2) ** 3);
+  return Math.round(HALF_YEAR_DAYS * transferPeriodInYears);
 }
 
 export function formatCompactDistance(distanceKm: number) {
@@ -168,16 +172,22 @@ export function getDistanceBetweenObjectsKm(
   moons: Moon[],
   simulatedDay: number
 ) {
-  const first =
-    bodies.find(body => body.id === firstId) ??
-    moons.find(moon => moon.id === firstId);
-  const second =
-    bodies.find(body => body.id === secondId) ??
-    moons.find(moon => moon.id === secondId);
+  const first = findCelestialRecord(firstId, bodies, moons);
+  const second = findCelestialRecord(secondId, bodies, moons);
   if (!first || !second) return 0;
   const a = getCelestialPositionAU(first, bodies, moons, simulatedDay);
   const b = getCelestialPositionAU(second, bodies, moons, simulatedDay);
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * ASTRONOMICAL_UNIT_KM;
+}
+
+function findCelestialRecord(
+  id: string,
+  bodies: Body[],
+  moons: Moon[]
+): CelestialRecord | undefined {
+  return (
+    bodies.find(body => body.id === id) ?? moons.find(moon => moon.id === id)
+  );
 }
 
 export function getApproximateMissionDays(
